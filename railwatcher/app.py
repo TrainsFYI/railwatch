@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -98,10 +99,45 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             raise HTTPException(503, "Waiting for a camera frame")
         return Response(jpeg, media_type="image/jpeg")
 
+    @app.get("/api/buffer")
+    def footage_buffer():
+        return engine.footage.list()
+
+    @app.get("/api/buffer/{filename}")
+    def footage_segment(filename: str):
+        path = engine.footage.find(filename)
+        if not path:
+            raise HTTPException(404, "That footage segment is no longer available")
+        return FileResponse(path, media_type="video/mp4")
+
+    @app.post("/api/buffer/mark")
+    async def mark_train(request: Request):
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(422, "Expected a start and end time")
+        try:
+            started, ended = float(body.get("started")), float(body.get("ended"))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "Enter valid start and end times") from None
+        if not (0 <= started < ended) or ended - started > 900:
+            raise HTTPException(422, "Choose a footage range of up to 15 minutes")
+        try:
+            row = engine.footage.export_mark(store, config.get(), started, ended)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        except OSError as error:
+            raise HTTPException(507, str(error)) from None
+        row.pop("metadata", None)
+        row.pop("filename", None)
+        row["manual_review"] = True
+        row["video_url"] = f"/api/sightings/{row['id']}/video"
+        return row
+
     @app.get("/api/sightings")
     def sightings(offset: int = 0):
         rows = store.list(50, max(0, offset))
         for row in rows:
+            row["manual_review"] = bool(json.loads(row["metadata"]).get("manual_review"))
             row.pop("metadata")
             row["video_url"] = f"/api/sightings/{row['id']}/video" if row["filename"] else None
             row.pop("filename")

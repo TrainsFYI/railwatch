@@ -56,6 +56,16 @@ async function main() {
     await page.getByRole('button',{name:'Pause detection'}).click();
     await page.getByRole('button',{name:'Start detection'}).waitFor();
     await page.screenshot({path:'artifacts/dashboard-desktop.png',fullPage:true});
+    await page.getByRole('button',{name:'View live camera fullscreen'}).click();
+    await page.waitForFunction(()=>Boolean(document.fullscreenElement));
+    assert.equal(await page.evaluate(()=>Boolean(document.fullscreenElement)),true,'Live view enters fullscreen');
+    await page.getByRole('button',{name:'Exit live camera fullscreen'}).click();
+    await page.waitForFunction(()=>!document.fullscreenElement);
+    await page.getByRole('button',{name:'Review footage'}).click();
+    await page.getByRole('heading',{name:'Review footage'}).waitFor();
+    await page.getByText(/No archived footage is available yet/).waitFor();
+    await page.getByRole('button',{name:'Back to dashboard'}).click();
+    await page.getByRole('heading',{name:'West junction'}).waitFor();
     const saved = await page.evaluate(async()=> (await fetch('/api/config')).json());
     assert.equal(saved.bearing,135); assert.equal(saved.latitude,43.6426);
     assert.equal(saved.enabled,false); assert.equal(saved.has_api_key,true);

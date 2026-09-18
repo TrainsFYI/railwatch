@@ -28,7 +28,7 @@ async function api(path, method = 'GET', body) {
 }
 function toast(text) { $('#toast').textContent = text; $('#toast').hidden = false; setTimeout(() => $('#toast').hidden = true, 4500); }
 function error(text) { const box = $('#error'); if (box) { box.textContent = text; box.hidden = false; } else toast(text); }
-function cleanup() { clearTimeout(previewTimer); clearTimeout(statusTimer); if (map) { map.stop(); map.remove(); map = null; marker = null; wedge = null; } }
+function cleanup() { clearTimeout(previewTimer); clearTimeout(statusTimer); if (document.fullscreenElement) document.exitFullscreen().catch(()=>{}); if (map) { map.stop(); map.remove(); map = null; marker = null; wedge = null; } }
 async function boot() {
   try {
     config = await api('config');
@@ -42,7 +42,17 @@ async function boot() {
   }
 }
 function previewHTML(variant = '', editable = true) {
-  return `<section class="card preview-card ${variant}"><div class="preview-head"><h3>Live camera</h3><span class="preview-status" id="preview-badge">Waiting</span></div><div class="preview"><div class="preview-empty" id="preview-empty"><strong>No camera frame</strong><p id="preview-message">Select a camera to view its picture.</p></div><img id="preview-image" alt="Live camera preview" hidden><canvas id="mask-canvas" aria-label="Camera detection area overlay"></canvas></div>${editable?`<div class="mask-editor"><div class="mask-editor-head"><strong>Detection area</strong><span id="mask-count"></span></div><p>Click the image to outline where trains appear. The detector ignores objects outside this area.</p><div class="mask-editor-actions"><button class="secondary" type="button" id="mask-undo">Undo point</button><button class="text-button" type="button" id="mask-clear">Clear area</button></div></div>`:`<div class="preview-foot"><p>Live view · processed on this device</p></div>`}</section>`;
+  return `<section class="card preview-card ${variant}"><div class="preview-head"><h3>Live camera</h3><span class="preview-status" id="preview-badge">Waiting</span></div><div class="preview"><div class="preview-empty" id="preview-empty"><strong>No camera frame</strong><p id="preview-message">Select a camera to view its picture.</p></div><img id="preview-image" alt="Live camera preview" hidden><canvas id="mask-canvas" aria-label="Camera detection area overlay"></canvas>${editable?'':'<button class="preview-fullscreen" type="button" aria-label="View live camera fullscreen">Full screen</button>'}</div>${editable?`<div class="mask-editor"><div class="mask-editor-head"><strong>Detection area</strong><span id="mask-count"></span></div><p>Click the image to outline where trains appear. The detector ignores objects outside this area.</p><div class="mask-editor-actions"><button class="secondary" type="button" id="mask-undo">Undo point</button><button class="text-button" type="button" id="mask-clear">Clear area</button></div></div>`:`<div class="preview-foot"><p>Live view · processed on this device</p></div>`}</section>`;
+}
+function bindFullscreen() {
+  const button=$('.preview-fullscreen');
+  if(!button)return;
+  const viewer=button.closest('.preview');
+  button.onclick=async()=>{
+    try { if(document.fullscreenElement===viewer) await document.exitFullscreen(); else await viewer.requestFullscreen(); }
+    catch { toast('Fullscreen is unavailable in this browser.'); }
+  };
+  document.onfullscreenchange=()=>{ if(button.isConnected){const full=document.fullscreenElement===viewer;button.textContent=full?'Exit full screen':'Full screen';button.setAttribute('aria-label',full?'Exit live camera fullscreen':'View live camera fullscreen');} };
 }
 function drawMask() {
   const canvas = $('#mask-canvas');
@@ -95,6 +105,7 @@ function setupMaskEditor() {
 }
 function startPreview() {
   clearTimeout(previewTimer);
+  bindFullscreen();
   const image = $('#preview-image');
   if (!image) return;
   const tick = async () => {
@@ -207,11 +218,48 @@ async function saveStep() {
 }
 function dashboard() {
   cleanup(); page='dashboard';offset=0;
-  $('#app').innerHTML=`<div class="dashboard-layout"><aside class="dashboard-sidebar">${previewHTML('sidebar-preview',false)}<section class="card event-panel"><div class="card-head"><div><h2>Historical events</h2><p>Train activity caught by this camera</p></div><span class="event-count" id="event-count">—</span></div><div id="sightings" class="event-list"></div><div class="event-pagination"><button id="previous" class="text-button" hidden>← Newer</button><button id="more" class="text-button" hidden>Older →</button></div></section></aside><section class="dashboard-main"><div class="intro"><div><h1>${escapeHTML(config.name)}</h1><p>${config.latitude === null ? 'Location not set' : `${config.latitude.toFixed(5)}, ${config.longitude.toFixed(5)}`} · Facing ${config.bearing}° ${compass(config.bearing)}</p></div><button class="secondary" id="settings">Camera settings</button></div><div class="stats"><div class="stat"><div class="stat-label">Sightings</div><div class="stat-value" id="stat-total">—</div><div class="stat-detail">recorded events</div></div><div class="stat"><div class="stat-label">Uploaded</div><div class="stat-value" id="stat-uploaded">—</div><div class="stat-detail">accepted by server</div></div><div class="stat"><div class="stat-label">Queued</div><div class="stat-value" id="stat-pending">—</div><div class="stat-detail">stored on device</div></div><div class="stat"><div class="stat-label">Clip storage</div><div class="stat-value" id="stat-storage">—</div><div class="stat-detail">of ${config.storage_gb} GB limit</div></div></div><section class="card system-card"><div class="card-head"><h2>System status</h2><span class="watch-state" id="watch-badge"><span class="watch-indicator" aria-hidden="true"></span>Starting</span></div><div class="status-list"><div class="status-row"><span>Camera</span><strong id="camera-status">—</strong></div><div class="status-row"><span>Detection</span><strong id="detector-status">—</strong></div><div class="status-row"><span>Video buffer</span><strong id="buffer-status">—</strong></div><div class="status-row"><span>TrainsFYI</span><strong id="upload-status">—</strong></div><div class="status-row"><span>Facing</span><strong>${config.bearing}° ${compass(config.bearing)}</strong></div></div><div id="storage-error" class="error-box" hidden></div><button class="secondary" id="toggle" style="width:100%;margin-top:16px">${config.enabled?'Pause detection':'Start detection'}</button></section></section></div>`;
-  $('#settings').onclick=()=>settingsPage();
+  $('#app').innerHTML=`<div class="dashboard-layout"><aside class="dashboard-sidebar">${previewHTML('sidebar-preview',false)}<section class="card event-panel"><div class="card-head"><div><h2>Historical events</h2><p>Train activity caught by this camera</p></div><span class="event-count" id="event-count">—</span></div><div id="sightings" class="event-list"></div><div class="event-pagination"><button id="previous" class="text-button" hidden>← Newer</button><button id="more" class="text-button" hidden>Older →</button></div></section></aside><section class="dashboard-main"><div class="intro"><div><h1>${escapeHTML(config.name)}</h1><p>${config.latitude === null ? 'Location not set' : `${config.latitude.toFixed(5)}, ${config.longitude.toFixed(5)}`} · Facing ${config.bearing}° ${compass(config.bearing)}</p></div><div class="dashboard-actions"><button class="secondary" id="review-footage">Review footage</button><button class="secondary" id="settings">Camera settings</button></div></div><div class="stats"><div class="stat"><div class="stat-label">Sightings</div><div class="stat-value" id="stat-total">—</div><div class="stat-detail">recorded events</div></div><div class="stat"><div class="stat-label">Uploaded</div><div class="stat-value" id="stat-uploaded">—</div><div class="stat-detail">accepted by server</div></div><div class="stat"><div class="stat-label">Queued</div><div class="stat-value" id="stat-pending">—</div><div class="stat-detail">stored on device</div></div><div class="stat"><div class="stat-label">Clip storage</div><div class="stat-value" id="stat-storage">—</div><div class="stat-detail">of ${config.storage_gb} GB limit</div></div></div><section class="card system-card"><div class="card-head"><h2>System status</h2><span class="watch-state" id="watch-badge"><span class="watch-indicator" aria-hidden="true"></span>Starting</span></div><div class="status-list"><div class="status-row"><span>Camera</span><strong id="camera-status">—</strong></div><div class="status-row"><span>Detection</span><strong id="detector-status">—</strong></div><div class="status-row"><span>Footage archive</span><strong id="buffer-status">—</strong></div><div class="status-row"><span>TrainsFYI</span><strong id="upload-status">—</strong></div><div class="status-row"><span>Facing</span><strong>${config.bearing}° ${compass(config.bearing)}</strong></div></div><div id="storage-error" class="error-box" hidden></div><button class="secondary" id="toggle" style="width:100%;margin-top:16px">${config.enabled?'Pause detection':'Start detection'}</button></section></section></div>`;
+  $('#settings').onclick=()=>settingsPage();$('#review-footage').onclick=reviewPage;
   $('#toggle').onclick=async()=>{try{config=await api('config','PATCH',{enabled:!config.enabled});$('#toggle').textContent=config.enabled?'Pause detection':'Start detection';toast(config.enabled?'Train detection enabled':'Train detection paused');}catch(e){error(e.message);}};
   $('#more').onclick=()=>{offset+=50;refreshSightings();};$('#previous').onclick=()=>{offset=Math.max(0,offset-50);refreshSightings();};
   startPreview(); refreshDashboard();
+}
+function localDateTime(epoch) {
+  const date=new Date(epoch*1000);const local=new Date(date.getTime()-date.getTimezoneOffset()*60000);
+  return local.toISOString().slice(0,19);
+}
+function reviewPage() {
+  cleanup(); page='review';
+  $('#app').innerHTML=`<div class="intro"><div><h1>Review footage</h1><p>Browse the rolling camera archive and mark trains the detector missed.</p></div><button class="secondary" id="back-review">Back to dashboard</button></div><div class="review-layout"><section class="card review-player"><video id="archive-video" controls playsinline preload="metadata"></video><div class="review-note" id="review-note">Loading available footage…</div><div class="review-list" id="review-list"></div></section><section class="card mark-card"><h2>Mark a train</h2><p>Select the start and end of the train’s passage. Railwatcher saves it as a manual sighting and queues it for upload when configured.</p><form id="mark-form" hidden><label for="mark-start">Start time</label><input id="mark-start" type="datetime-local" step="1" required><label for="mark-end">End time</label><input id="mark-end" type="datetime-local" step="1" required><button id="mark-submit" type="submit">Mark train and save clip</button></form><p class="hint">Selected footage must be within the available archive and shorter than 15 minutes.</p></section></div>`;
+  $('#back-review').onclick=dashboard;
+  api('buffer').then(data=>{
+    if(page!=='review')return;
+    const list=$('#review-list'), note=$('#review-note');
+    if(!data.segments.length){note.textContent=data.active?'The camera is building its first footage segment. Check back in a couple of minutes.':'No archived footage is available yet. Start camera monitoring to build the rolling archive.';return;}
+    const segments=[...data.segments].reverse();
+    const hours=data.available_seconds/3600;
+    note.textContent=`${segments.length} playable segments · ${hours<1?`${Math.round(hours*60)} minutes`:`${hours.toFixed(1)} hours`} available · up to 24 hours retained`;
+    $('#mark-form').hidden=false;
+    list.innerHTML=`<h2>Available times</h2>${segments.map((segment,index)=>`<button type="button" class="review-segment" data-index="${index}"><span>${new Date(segment.started*1000).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span><small>${Math.max(1,Math.round((segment.ended-segment.started)/60))} min</small></button>`).join('')}`;
+    const selectSegment=index=>{
+      const segment=segments[index];if(!segment)return;
+      document.querySelectorAll('.review-segment').forEach(button=>button.classList.toggle('selected',+button.dataset.index===index));
+      const video=$('#archive-video');video.src=segment.video_url;video.load();
+      const end=segment.ended, start=Math.max(segment.started,end-30);
+      $('#mark-start').value=localDateTime(start);$('#mark-end').value=localDateTime(end);
+    };
+    document.querySelectorAll('.review-segment').forEach(button=>button.onclick=()=>selectSegment(+button.dataset.index));
+    selectSegment(0);
+    $('#mark-form').onsubmit=async event=>{
+      event.preventDefault();const submit=$('#mark-submit');submit.disabled=true;
+      try {
+        const result=await api('buffer/mark','POST',{started:Date.parse($('#mark-start').value)/1000,ended:Date.parse($('#mark-end').value)/1000});
+        toast('Manual train sighting saved to historical events.');
+        if(result.video_url){const video=$('#archive-video');video.src=result.video_url;video.load();}
+      } catch(e) { toast(e.message); }
+      finally { if(submit.isConnected)submit.disabled=false; }
+    };
+  }).catch(e=>{if(page==='review')$('#review-note').textContent=e.message;});
 }
 function settingsPage() {
   cleanup(); page='settings'; locationChosen=config.latitude!==null&&config.longitude!==null; sourceType=config.source_type;
@@ -237,7 +285,7 @@ async function settingsSourceField() {
 async function refreshSightings() {
   const rows=await api(`sightings?offset=${offset}`);if(page!=='dashboard')return;
   $('#previous').hidden=offset===0;$('#more').hidden=rows.length<50;
-  $('#sightings').innerHTML=rows.length?rows.map(row=>`<article class="event-item"><div class="event-item-top"><strong>${new Date(row.started*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</strong><span class="badge ${row.status}">${row.status==='pending'?'Queued':escapeHTML(row.status)}</span></div><small>${row.ended?`${Math.max(0,Math.round(row.ended-row.started))}s recorded`:'Recording in progress'} · ${Math.round(row.confidence*100)}% confidence</small>${row.error?`<small class="error">${escapeHTML(row.error)}</small>`:''}<div class="event-actions">${row.video_url?`<button class="secondary play-video" data-url="${escapeHTML(row.video_url)}">View clip</button>`:`<span class="hint">${row.status==='uploaded'?'Clip removed':'Stored on device'}</span>`}${row.status==='pending'&&row.attempts?`<button class="text-button retry" data-id="${row.id}">Retry upload</button>`:''}</div></article>`).join(''):`<div class="empty-state"><strong>No sightings recorded</strong><p>Detected train events and their video clips will appear here.</p></div>`;
+  $('#sightings').innerHTML=rows.length?rows.map(row=>`<article class="event-item"><div class="event-item-top"><strong>${new Date(row.started*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</strong><span class="badge ${row.status}">${row.status==='pending'?'Queued':escapeHTML(row.status)}</span></div><small>${row.ended?`${Math.max(0,Math.round(row.ended-row.started))}s recorded`:'Recording in progress'} · ${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}% confidence`}</small>${row.error?`<small class="error">${escapeHTML(row.error)}</small>`:''}<div class="event-actions">${row.video_url?`<button class="secondary play-video" data-url="${escapeHTML(row.video_url)}">View clip</button>`:`<span class="hint">${row.status==='uploaded'?'Clip removed':'Stored on device'}</span>`}${row.status==='pending'&&row.attempts?`<button class="text-button retry" data-id="${row.id}">Retry upload</button>`:''}</div></article>`).join(''):`<div class="empty-state"><strong>No sightings recorded</strong><p>Detected train events and their video clips will appear here.</p></div>`;
   document.querySelectorAll('.play-video').forEach(button=>button.onclick=()=>{const video=$('#video-dialog video');video.src=button.dataset.url;$('#video-dialog').showModal();video.play().catch(()=>{});});
   document.querySelectorAll('.retry').forEach(button=>button.onclick=async()=>{try{await api(`sightings/${button.dataset.id}/retry`,'POST');toast('Upload queued for retry');}catch(e){error(e.message);}});
 }
@@ -245,7 +293,7 @@ async function refreshDashboard() {
   try {
     const s=await api('status');if(page!=='dashboard')return;
     $('#stat-total').textContent=s.sightings.total;$('#event-count').textContent=s.sightings.total;$('#stat-uploaded').textContent=s.sightings.counts.uploaded||0;$('#stat-pending').textContent=(s.sightings.counts.pending||0)+(s.sightings.counts.uploading||0);$('#stat-storage').textContent=`${(s.sightings.bytes/1e9).toFixed(2)} GB`;
-    $('#camera-status').textContent=s.camera;$('#detector-status').textContent=s.detector;$('#buffer-status').textContent=`${s.buffer_seconds}s buffered`;$('#upload-status').textContent=s.uploads;const watchBadge=$('#watch-badge'); const state=s.recording?'Recording':!s.enabled?'Paused':s.detector==='watching'?'Monitoring':'Check system'; watchBadge.lastChild.textContent=state; watchBadge.dataset.state=state.toLowerCase().replaceAll(' ','-');
+    $('#camera-status').textContent=s.camera;$('#detector-status').textContent=s.detector;$('#buffer-status').textContent=s.footage_seconds?`${(s.footage_seconds/3600).toFixed(1)} hours available · 24h retention`:'Building first segment';$('#upload-status').textContent=s.uploads;const watchBadge=$('#watch-badge'); const state=s.recording?'Recording':!s.enabled?'Paused':s.detector==='watching'?'Monitoring':'Check system'; watchBadge.lastChild.textContent=state; watchBadge.dataset.state=state.toLowerCase().replaceAll(' ','-');
     $('#storage-error').hidden=!s.storage_error;$('#storage-error').textContent=s.storage_error||'';await refreshSightings();
   }catch(e){if(page==='dashboard')toast(e.message);}
   if(page==='dashboard')statusTimer=setTimeout(refreshDashboard,5000);

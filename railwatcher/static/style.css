@@ -150,6 +150,10 @@ input[type=checkbox] { width: 15px; min-height: 15px; margin: 0 7px 0 0; vertica
   border: 1px solid #bfc4bd;
   background-color: var(--surface-alt);
 }
+.preview:fullscreen { width: 100vw; height: 100vh; min-height: 0; aspect-ratio: auto; border: 0; background: #000; }
+.preview:fullscreen img { object-fit: contain; }
+.preview-fullscreen { position: absolute; z-index: 4; top: 10px; right: 10px; min-height: 34px; padding: 6px 10px; border: 1px solid #ffffff75; background: #111b; color: #fff; font-size: 12px; }
+.preview-fullscreen:hover { border-color: #fff; background: #111e; }
 .preview::before { position: absolute; top: 0; right: 0; bottom: 0; left: 0; border-top: 3px solid var(--signal); content: ""; pointer-events: none; }
 .preview img { position: absolute; width: 100%; height: 100%; object-fit: contain; }
 #mask-canvas { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
@@ -216,6 +220,21 @@ input[type=checkbox] { width: 15px; min-height: 15px; margin: 0 7px 0 0; vertica
 .event-pagination button { min-height: 30px; }
 .dashboard-main { min-width: 0; }
 .dashboard-main .intro { margin-bottom: 24px; }
+.dashboard-actions { display: flex; align-items: center; gap: 8px; }
+.review-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, .8fr); align-items: start; gap: 20px; }
+.review-player { min-width: 0; padding: 16px; border-top: 2px solid var(--primary); }
+.review-player video { display: block; width: 100%; max-height: 70vh; background: #101820; }
+.review-note { padding: 11px 0; color: var(--muted); font-size: 12px; }
+.review-list { max-height: 48vh; overflow-y: auto; border-top: 1px solid var(--line); }
+.review-list h2 { margin: 12px 0 4px; font-size: 14px; }
+.review-segment { display: flex; width: 100%; min-height: 42px; align-items: center; justify-content: space-between; padding: 8px 2px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; }
+.review-segment:hover, .review-segment.selected { color: var(--primary); background: var(--surface-alt); }
+.review-segment small { color: var(--muted); font-size: 11px; }
+.mark-card { position: sticky; top: 18px; padding: 18px; border-top: 2px solid var(--primary); }
+.mark-card h2 { margin-top: 0; }
+.mark-card > p, .mark-card .hint { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.mark-card form button { width: 100%; margin-top: 12px; }
+.mark-card input { font-variant-numeric: tabular-nums; }
 .system-card { max-width: 680px; padding: 22px; border-top: 2px solid var(--primary); }
 .status-list { margin-top: 13px; }
 .status-row { display: flex; justify-content: space-between; gap: 15px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 12px; }
@@ -257,6 +276,11 @@ dialog video { width: 100%; max-height: 70vh; margin-top: 14px; }
   .brand-mark { width: 23px; height: 23px; }
   .setup-grid, .dashboard-grid, .settings-grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .dashboard-layout { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+  .review-layout { grid-template-columns: minmax(0, 1fr); }
+  .mark-card { position: static; }
+  .review-list { max-height: 35vh; }
+  .dashboard-actions { width: 100%; }
+  .dashboard-actions button { flex: 1; }
   .dashboard-sidebar { position: static; height: auto; min-height: 0; grid-template-rows: auto minmax(220px, 300px); }
   .sidebar-preview .preview { min-height: 180px; }
   .event-panel { min-height: 250px; }

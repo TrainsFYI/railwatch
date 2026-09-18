@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import shutil
 import subprocess
@@ -15,6 +16,7 @@ from railwatcher.app import create_app
 from railwatcher.config import ConfigStore, Settings
 from railwatcher.detection import Trigger
 from railwatcher.engine import Recording, capture_command
+from railwatcher.footage import FootageBuffer
 from railwatcher.store import Store
 from railwatcher.uploads import Uploader
 
@@ -92,6 +94,7 @@ def test_local_routes_open_and_cross_origin_changes_are_rejected(client, tmp_pat
     assert client.get("/api/config").status_code == 200
     assert client.get("/api/status").status_code == 200
     assert client.get("/api/sightings").status_code == 200
+    assert client.get("/api/buffer").json()["segments"] == []
     assert client.get("/api/devices").status_code == 200
     assert client.get("/api/preview").status_code == 503
     assert client.get("/api/sightings/missing/video").status_code == 404
@@ -222,6 +225,62 @@ def test_open_video_route_supports_range_requests(client):
     assert response.status_code == 206
     assert len(response.content) == 10
     assert client.get("/api/sightings/missing/video").status_code == 404
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg required")
+def test_review_buffer_can_be_played_and_marked_as_a_manual_sighting(client, tmp_path):
+    archive = client.app.state.engine.footage
+    started = (dt.datetime.now(dt.UTC) - dt.timedelta(minutes=10)).replace(microsecond=0)
+    filename = started.strftime("%Y%m%dT%H%M%S") + ".mp4"
+    path = archive.directory / filename
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+            "-i", "color=c=blue:s=640x360:r=5", "-t", "6", "-an", "-c:v", "libx264",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path),
+        ],
+        check=True,
+    )
+    index = client.get("/api/buffer").json()
+    assert index["retention_seconds"] == 86400
+    assert [segment["id"] for segment in index["segments"]] == [filename]
+    assert client.get(f"/api/buffer/{filename}").status_code == 200
+    start_epoch = started.timestamp()
+    response = client.post(
+        "/api/buffer/mark", json={"started": start_epoch + 1, "ended": start_epoch + 4}
+    )
+    assert response.status_code == 200, response.text
+    sighting = response.json()
+    assert sighting["status"] == "pending"
+    assert sighting["manual_review"] is True
+    assert sighting["video_url"] == f"/api/sightings/{sighting['id']}/video"
+    assert client.get(sighting["video_url"]).status_code == 200
+    assert client.get("/api/sightings").json()[0]["manual_review"] is True
+    assert client.post(
+        "/api/buffer/mark", json={"started": start_epoch, "ended": start_epoch + 901}
+    ).status_code == 422
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg required")
+def test_rolling_buffer_encodes_and_closes_a_segment(tmp_path):
+    archive = FootageBuffer(tmp_path / "buffer")
+    image = np.zeros((540, 960, 3), dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", image)
+    assert ok
+    archive.start()
+    for index in range(40):
+        archive.add(time.time(), encoded.tobytes())
+    archive.close()
+    segments = archive.list()["segments"]
+    assert len(segments) == 1
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,width,height", "-of", "json", str(archive.directory / segments[0]["id"])],
+        capture_output=True,
+        check=True,
+    )
+    stream = json.loads(probe.stdout)["streams"][0]
+    assert stream["codec_name"] == "h264"
+    assert stream["width"] == 640
 
 
 def test_rtsp_credentials_are_one_argument_not_shell_commands():

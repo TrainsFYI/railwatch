@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from .detection import TrainDetector, Trigger
+from .footage import FootageBuffer
 
 log = logging.getLogger(__name__)
 WIDTH, HEIGHT, FPS = 960, 540, 10
@@ -170,6 +171,7 @@ class Recording:
 class Engine:
     def __init__(self, config, store, model: Path):
         self.config, self.store, self.model_path = config, store, model
+        self.footage = FootageBuffer(store.directory / "buffer")
         self.stop = threading.Event()
         self.lock = threading.RLock()
         self.preview_requested = 0.0
@@ -209,6 +211,7 @@ class Engine:
             return self.jpeg if time.time() - self.frame_time < 5 else None
 
     def status(self):
+        footage_seconds = self.footage.list()["available_seconds"]
         with self.lock:
             return {
                 "camera": self.camera_status,
@@ -218,6 +221,7 @@ class Engine:
                 "confidence": round(self.last_score, 3),
                 "last_frame": self.frame_time or None,
                 "buffer_seconds": round(len(self.buffer) / FPS, 1),
+                "footage_seconds": round(footage_seconds),
                 "model_available": self.model_path.is_file(),
             }
 
@@ -234,6 +238,7 @@ class Engine:
                 self.stop.wait(0.5)
                 continue
             source = (settings.source_type, settings.source)
+            archive_started = False
             try:
                 self.camera_status = "connecting"
                 self.process = subprocess.Popen(
@@ -249,6 +254,9 @@ class Engine:
                     ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                     if not ok:
                         continue
+                    if not archive_started:
+                        self.footage.start()
+                        archive_started = True
                     stamp, jpeg = time.time(), encoded.tobytes()
                     with self.lock:
                         self.frame, self.frame_time, self.jpeg = frame, stamp, jpeg
@@ -260,10 +268,13 @@ class Engine:
                             self.buffer.popleft()
                         if self.recording:
                             self.recording.add(stamp, jpeg)
+                    self.footage.add(stamp, jpeg)
             except (OSError, subprocess.SubprocessError, cv2.error):
                 self.camera_status = "unavailable — check camera address, credentials, or USB connection"
                 log.warning("Camera unavailable; retrying in five seconds")
             finally:
+                if archive_started:
+                    self.footage.close()
                 if self.process:
                     if self.process.poll() is None:
                         self.process.kill()
