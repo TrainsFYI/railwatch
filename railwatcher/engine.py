@@ -22,7 +22,7 @@ WIDTH, HEIGHT, FPS = 960, 540, 10
 def capture_command(settings):
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin"]
     if settings.source_type == "rtsp":
-        command += ["-rtsp_transport", "tcp", "-rw_timeout", "10000000", "-i", settings.source]
+        command += ["-rtsp_transport", "tcp", "-timeout", "10000000", "-i", settings.source]
     else:
         command += ["-f", "v4l2", "-framerate", str(FPS), "-video_size", "1280x720", "-i", settings.source]
     return command + [

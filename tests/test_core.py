@@ -217,6 +217,7 @@ def test_rtsp_credentials_are_one_argument_not_shell_commands():
     source = "rtsp://user:$(touch_owned)@192.168.0.1/live"
     command = capture_command(Settings(source_type="rtsp", source=source))
     assert command[command.index("-i") + 1] == source
+    assert command[command.index("-timeout") + 1] == "10000000"
     assert command[-1] == "pipe:1"
 
 
