@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1e40af"><title>Railwatcher · Trains.FYI</title><script>try{document.documentElement.dataset.theme=localStorage.getItem('railwatcher-theme')||'light'}catch{}</script><link rel="stylesheet" href="/static/vendor/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script defer src="/static/vendor/leaflet.js"></script><script defer src="/static/app.js"></script></head>
+<body>
+<header>
+  <a class="brand" href="/" aria-label="Railwatcher by Trains.FYI home">
+    <img class="brand-logo" src="/static/trainsfyi-logo.png" alt="">
+    <span class="brand-name">Railwatcher <small>by Trains.FYI</small></span>
+  </a>
+  <div class="header-right"><span class="device-state"><span class="device-dot" aria-hidden="true"></span>Local device</span><button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span id="theme-label">Dark mode</span></button></div>
+</header>
+<main id="app"><div class="loading">Loading camera settings…</div></main>
+<div id="toast" role="status" hidden></div>
+<dialog id="video-dialog"><div class="dialog-head"><h2>Sighting recording</h2><button id="close-video" class="secondary">Close</button></div><video controls playsinline></video></dialog>
+</body></html>

@@ -1,0 +1,26 @@
+[Unit]
+Description=Railwatcher train camera
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=railwatcher
+Group=railwatcher
+SupplementaryGroups=video
+WorkingDirectory=/var/lib/railwatcher
+Environment=RAILWATCHER_DATA=/var/lib/railwatcher
+Environment=RAILWATCHER_MODEL=/opt/railwatcher/models/train.onnx
+ExecStart=/opt/railwatcher/venv/bin/railwatcher --host 0.0.0.0 --port 8787
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=100
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/railwatcher
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
