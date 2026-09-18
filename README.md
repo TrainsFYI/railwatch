@@ -84,6 +84,19 @@ python3.12 -m venv .venv
 
 USB capture uses Linux V4L2. On macOS, use RTSP for real capture; the web app and tests run without a connected camera. To listen on the LAN use `--host 0.0.0.0`. Other options: `--port`, `--data`, `--model`; service equivalents are `RAILWATCHER_DATA` and `RAILWATCHER_MODEL`. Run **one application process** per camera; do not add Uvicorn workers.
 
+## Run with Docker Compose
+
+The Compose service builds a small runtime image with FFmpeg, runs as UID 10001, and stores configuration, database and clips in a persistent data directory. Model weights stay outside the image. Prepare writable data and model directories, then start it:
+
+```sh
+mkdir -p data models
+sudo chown 10001:10001 data
+docker compose up -d --build
+docker compose logs -f railwatcher
+```
+
+Compose binds to `127.0.0.1:8787` by default. To reach it from another device, set `RAILWATCHER_BIND_IP` in a local `.env` file to an address trusted clients can reach (for example, the host's Tailscale IP). Only bind to `0.0.0.0` on a trusted LAN: the app has no login, so do not expose it to the public internet. `RAILWATCHER_DATA_DIR` and `RAILWATCHER_MODEL_DIR` can point to persistent host paths; the model directory is mounted read-only.
+
 ```sh
 .venv/bin/pytest
 .venv/bin/ruff check .

@@ -15,3 +15,5 @@ models/train.json
 .DS_Store
 node_modules/
 artifacts/
+.env
+.env.*
