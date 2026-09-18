@@ -45,6 +45,9 @@ def test_trigger_requires_consecutive_detections_and_keeps_tail():
         {"upload_url": "https://key:secret@example.com"},
         {"latitude": 91},
         {"longitude": float("nan")},
+        {"detection_mask": [[0.2, 0.2], [0.8, 0.8]]},
+        {"detection_mask": [[-0.1, 0], [0.8, 0.8], [0.5, 0.2]]},
+        {"detection_mask": [[0.5, 0.5]] * 33},
         {"bearing": 360},
         {"enabled": True},
         {"unexpected": 1},
@@ -117,6 +120,14 @@ def test_setup_validation_and_secret_errors(client):
     )
     assert client.get("/api/status").json()["enabled"]
     assert client.get("/api/preview").status_code == 503
+
+
+def test_detection_mask_is_saved_and_returned_in_image_coordinates(client, tmp_path):
+    points = [[0.12, 0.25], [0.8, 0.3], [0.7, 0.9]]
+    response = client.patch("/api/config", json={"detection_mask": points})
+    assert response.status_code == 200
+    assert response.json()["detection_mask"] == points
+    assert ConfigStore(tmp_path).get().detection_mask == [tuple(point) for point in points]
 
 
 def add_clip(store, event_id="event", status="pending", size=100):
@@ -221,6 +232,27 @@ def test_rtsp_credentials_are_one_argument_not_shell_commands():
     assert command[-1] == "pipe:1"
 
 
+def test_detection_mask_limits_confidence_to_detections_inside_polygon():
+    from railwatcher.detection import TrainDetector
+
+    class FakeNetwork:
+        def setInput(self, _blob):
+            pass
+
+        def forward(self):
+            # Model input coordinates are 640x640: .65 is inside the ROI;
+            # .99 is outside and must not trigger the detector.
+            return np.array([[[320, 32], [320, 32], [10, 10], [10, 10], [0.65, 0.99]]], dtype=np.float32)
+
+    detector = object.__new__(TrainDetector)
+    detector.net = FakeNetwork()
+    frame = np.zeros((540, 960, 3), dtype=np.uint8)
+    mask = [(0.4, 0.4), (0.6, 0.4), (0.6, 0.6), (0.4, 0.6)]
+
+    assert detector.confidence(frame, mask) == pytest.approx(0.65)
+    assert detector.confidence(frame) == pytest.approx(0.99)
+
+
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg required")
 def test_recording_produces_playable_h264_and_includes_buffer(tmp_path):
     store = Store(tmp_path)
@@ -305,7 +337,7 @@ def test_capture_detection_and_recording_pipeline(tmp_path, monkeypatch):
         def __init__(self, path):
             self.calls = 0
 
-        def confidence(self, frame):
+        def confidence(self, frame, detection_mask=()):
             self.calls += 1
             return 0.9 if 3 <= self.calls <= 6 else 0.01
 

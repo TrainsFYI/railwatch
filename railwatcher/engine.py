@@ -304,7 +304,7 @@ class Engine:
                     self.stop.wait(0.5)
                     continue
                 last_frame = stamp
-                score = detector.confidence(frame)
+                score = detector.confidence(frame, settings.detection_mask)
                 self.last_score = score
                 action = trigger.feed(score >= settings.confidence, stamp)
                 self.detector_status = "watching"

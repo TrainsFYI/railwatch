@@ -15,7 +15,7 @@ class TrainDetector:
         self.net = cv2.dnn.readNetFromONNX(str(path))
         cv2.setNumThreads(2)
 
-    def confidence(self, frame: np.ndarray) -> float:
+    def confidence(self, frame: np.ndarray, detection_mask=()) -> float:
         height, width = frame.shape[:2]
         scale = min(640 / width, 640 / height)
         resized = cv2.resize(frame, (round(width * scale), round(height * scale)))
@@ -26,7 +26,27 @@ class TrainDetector:
         output = self.net.forward()
         if output.ndim != 3 or output.shape[1] != 5:
             raise ValueError("Expected single-class YOLOv8 output [1,5,N]; export the TrainsFYI model")
-        return float(np.max(output[0, 4]))
+        detections = output[0]
+        scores = detections[4]
+        if not detection_mask:
+            return float(np.max(scores))
+
+        # The model sees the padded 640x640 image. Convert detection centers back
+        # to normalized coordinates in the original camera frame.
+        centers_x = (detections[0] - x) / scale / width
+        centers_y = (detections[1] - y) / scale / height
+        polygon = np.asarray(detection_mask, dtype=np.float32)
+        inside = np.zeros(centers_x.shape, dtype=bool)
+        previous = polygon[-1]
+        for current in polygon:
+            x1, y1 = previous
+            x2, y2 = current
+            crosses = (y1 > centers_y) != (y2 > centers_y)
+            boundary_x = (x2 - x1) * (centers_y - y1) / (y2 - y1 + 1e-12) + x1
+            inside ^= crosses & (centers_x < boundary_x)
+            previous = current
+        inside &= (centers_x >= 0) & (centers_x <= 1) & (centers_y >= 0) & (centers_y <= 1)
+        return float(np.max(scores[inside])) if np.any(inside) else 0.0
 
 
 @dataclass

@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Settings(BaseModel):
@@ -17,6 +17,7 @@ class Settings(BaseModel):
     bearing: float = Field(default=0, ge=0, lt=360)
     field_of_view: float = Field(default=70, ge=10, le=160)
     confidence: float = Field(default=0.55, ge=0.1, le=0.99)
+    detection_mask: list[tuple[float, float]] = Field(default_factory=list, max_length=32)
     confirmations: int = Field(default=3, ge=1, le=10)
     pre_roll: int = Field(default=12, ge=3, le=30)
     post_roll: int = Field(default=15, ge=3, le=60)
@@ -26,6 +27,15 @@ class Settings(BaseModel):
     upload_url: str = Field(default="", max_length=2048)
     enabled: bool = False
     setup_complete: bool = False
+
+    @field_validator("detection_mask")
+    @classmethod
+    def validate_detection_mask(cls, points):
+        if points and len(points) < 3:
+            raise ValueError("A detection area needs at least three points")
+        if any(not 0 <= coordinate <= 1 for point in points for coordinate in point):
+            raise ValueError("Detection area points must be inside the camera image")
+        return points
 
     @model_validator(mode="after")
     def validate_settings(self):
