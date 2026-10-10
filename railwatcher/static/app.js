@@ -119,7 +119,7 @@ function setupMaskEditor() {
   drawMask();
 }
 function landmarkEditorHTML() {
-  return `<div class="landmark-editor"><h3>Highlightable landmarks</h3><p>Label fixed features such as crossing lights or a gate. Select a landmark, then drag a box around it. Drag again to replace its box.</p><label for="camera-edit-mode">Image editing mode</label><select id="camera-edit-mode"><option value="detection">Detection area</option><option value="landmarks">Landmark boxes</option></select><div class="landmark-controls"><div><label for="landmark-select">Selected landmark</label><select id="landmark-select"></select></div><button type="button" class="secondary" id="landmark-add">Add landmark</button></div><label for="landmark-label">Landmark label</label><input id="landmark-label" maxlength="80" placeholder="e.g. Crossing light, left"><button type="button" class="text-button" id="landmark-remove">Remove selected landmark</button><p class="hint">Save settings to keep your boxes and labels. These highlights do not yet detect flashing lights.</p></div>`;
+  return `<div class="landmark-editor"><h3>Highlightable landmarks</h3><p>Label fixed features such as crossing lights or a gate. Select a landmark, then drag a box around it. Drag again to replace its box.</p><label for="camera-edit-mode">Image editing mode</label><select id="camera-edit-mode"><option value="detection">Detection area</option><option value="landmarks">Landmark boxes</option></select><div class="landmark-controls"><div><label for="landmark-select">Selected landmark</label><select id="landmark-select"></select></div><button type="button" class="secondary" id="landmark-add">Add landmark</button></div><label for="landmark-label">Landmark label</label><input id="landmark-label" maxlength="80" placeholder="e.g. Crossing light, left"><button type="button" class="text-button" id="landmark-remove">Remove selected landmark</button><p class="hint">Save settings to keep your boxes and labels. Review footage can filter repeated red flashes within these boxes.</p></div>`;
 }
 function setupLandmarkEditor() {
   const select = $('#landmark-select'), label = $('#landmark-label'), canvas = $('#mask-canvas');
@@ -289,8 +289,16 @@ function localDateTime(epoch) {
 }
 function reviewPage() {
   cleanup(); page='review';
-  $('#app').innerHTML=`<div class="intro"><div><h1>Review footage</h1><p>Find significant movement inside your detection area and review possible train passages.</p></div><button class="secondary" id="back-review">Back to dashboard</button></div><div class="review-layout"><section class="card review-player"><div class="archive-view"><video id="archive-video" controls playsinline preload="metadata"></video><svg class="archive-area" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Tracked detection area"><polygon points="${detectionMask.map(([x,y])=>`${x*100},${y*100}`).join(' ')}"></polygon></svg></div><label for="movement-filter">Show footage</label><select id="movement-filter"><option value="motion">Significant movement in tracked area</option><option value="all">All footage</option><option value="quiet">No significant movement detected</option><option value="pending">Not analysed yet</option><option value="error">Analysis unavailable</option></select><p class="hint">Requires at least 15% of the tracked area to change for about two seconds. Candidates can include vehicles, people, foliage and shadows. They are not confirmed trains. No significant movement detected does not prove an empty track.</p><div class="review-note" id="review-note" role="status">Loading available footage…</div><div id="motion-windows"></div><div class="review-list" id="review-list"></div></section><section class="card mark-card"><h2>Mark a train</h2><p>Select the start and end of the train’s passage. Railwatcher saves it as a manual sighting and queues it for upload when configured.</p><form id="mark-form" hidden><label for="mark-start">Start time</label><input id="mark-start" type="datetime-local" step="1" required><label for="mark-end">End time</label><input id="mark-end" type="datetime-local" step="1" required><button id="mark-submit" type="submit">Mark train and save clip</button></form><p class="hint">Selected footage must be within the available archive and shorter than 15 minutes.</p></section></div>`;
+  $('#app').innerHTML=`<div class="intro"><div><h1>Review footage</h1><p>Find significant movement inside your detection area and review possible train passages.</p></div><button class="secondary" id="back-review">Back to dashboard</button></div><div class="review-layout"><section class="card review-player"><div class="archive-view"><video id="archive-video" controls playsinline preload="metadata"></video><svg class="archive-area" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Tracked detection area"><polygon points="${detectionMask.map(([x,y])=>`${x*100},${y*100}`).join(' ')}"></polygon>${(config.landmarks||[]).map(item=>`<rect x="${item.box[0]*100}" y="${item.box[1]*100}" width="${(item.box[2]-item.box[0])*100}" height="${(item.box[3]-item.box[1])*100}" fill="none" stroke="#57dbff" stroke-width="0.3"><title>${escapeHTML(item.label)}</title></rect>`).join('')}</svg></div><label for="activity-filter">Look for</label><select id="activity-filter"><option value="red_flashes">Red flashes in landmarks</option><option value="movement">Significant movement</option></select><label for="movement-filter">Show footage</label><select id="movement-filter"><option value="motion">Significant movement in tracked area</option><option value="all">All footage</option><option value="quiet">No significant movement detected</option><option value="pending">Not analysed yet</option><option value="error">Analysis unavailable</option></select><p class="hint" id="activity-hint">Requires at least 15% of the tracked area to change for about two seconds. Candidates can include vehicles, people, foliage and shadows. They are not confirmed trains. No significant movement detected does not prove an empty track.</p><div class="review-note" id="review-note" role="status">Loading available footage…</div><div id="motion-windows"></div><div class="review-list" id="review-list"></div></section><section class="card mark-card"><h2>Mark a train</h2><p>Select the start and end of the train’s passage. Railwatcher saves it as a manual sighting and queues it for upload when configured.</p><form id="mark-form" hidden><label for="mark-start">Start time</label><input id="mark-start" type="datetime-local" step="1" required><label for="mark-end">End time</label><input id="mark-end" type="datetime-local" step="1" required><button id="mark-submit" type="submit">Mark train and save clip</button></form><p class="hint">Selected footage must be within the available archive and shorter than 15 minutes.</p></section></div>`;
   $('#back-review').onclick=dashboard;
+  $('#activity-filter').value=config.landmarks?.length?'red_flashes':'movement';
+  const updateActivity = () => {
+    const flashing=$('#activity-filter').value==='red_flashes';
+    $('#movement-filter').options[0].textContent=flashing?'Repeated red flashes':'Significant movement in tracked area';
+    $('#movement-filter').options[2].textContent=flashing?'No red flashes detected':'No significant movement detected';
+    $('#activity-hint').textContent=flashing?(config.landmarks?.length?'Looks for at least three red on/off cycles within saved landmark boxes. Candidates indicate crossing activity, not confirmed trains.':'Add a landmark around a crossing lamp in Camera settings first.'):'Requires at least 15% of the tracked area to change for about two seconds. Movement candidates are not confirmed trains.';
+  };
+  updateActivity();
   let selectedId=null, segments=[], requestNumber=0;
   const linkedId=new URLSearchParams(location.search).get('footage');
   let linkedPending=Boolean(linkedId);
@@ -311,7 +319,7 @@ function reviewPage() {
     $('#mark-form').hidden=false;
     $('#mark-start').value=localDateTime(segment.started);$('#mark-end').value=localDateTime(segment.ended);
     const windows=segment.motion.windows;
-    $('#motion-windows').innerHTML=windows.length?`<p>Jump to movement:</p>${windows.map((window,index)=>`<button type="button" class="secondary motion-jump" data-index="${index}">${Math.floor(window.started/60)}:${String(Math.floor(window.started%60)).padStart(2,'0')}–${Math.floor(window.ended/60)}:${String(Math.ceil(window.ended%60)).padStart(2,'0')}</button>`).join('')}`:'';
+    $('#motion-windows').innerHTML=windows.length?`<p>Jump to activity:</p>${windows.map((window,index)=>`<button type="button" class="secondary motion-jump" data-index="${index}">${window.label?escapeHTML(window.label)+' · ':''}${Math.floor(window.started/60)}:${String(Math.floor(window.started%60)).padStart(2,'0')}–${Math.floor(window.ended/60)}:${String(Math.ceil(window.ended%60)).padStart(2,'0')}</button>`).join('')}`:'';
     document.querySelectorAll('.motion-jump').forEach(button=>button.onclick=()=>selectWindow(segment,windows[+button.dataset.index]));
     if(windows.length)selectWindow(segment,windows[0]);
   };
@@ -319,13 +327,14 @@ function reviewPage() {
     clearTimeout(statusTimer);
     const request=++requestNumber;
     try {
-      const data=await api(`buffer?movement=${$('#movement-filter').value}`);
+      const data=await api(`buffer?movement=${$('#movement-filter').value}&activity=${$('#activity-filter').value}`);
       if(page!=='review'||request!==requestNumber)return;
       segments=[...data.segments].reverse();
       const counts=data.motion_counts, total=Object.values(counts).reduce((a,b)=>a+b,0);
       const note=$('#review-note');
-      note.textContent=total?`${counts.motion} segments with significant movement · ${total-counts.pending} / ${total} analysed · ${counts.pending} waiting · ${counts.error} unavailable · ${(data.available_seconds/3600).toFixed(1)} hours retained`:(data.active?'The camera is building its first footage segment. Check back in a couple of minutes.':'No archived footage is available yet. Start camera monitoring to build the rolling archive.');
-      const labels={motion:'Significant movement',quiet:'No significant movement detected',pending:'Not analysed',error:'Analysis unavailable'};
+      const flashing=$('#activity-filter').value==='red_flashes';
+      note.textContent=total?`${counts.motion} segments with ${flashing?'red flashes':'significant movement'} · ${total-counts.pending} / ${total} analysed · ${counts.pending} waiting · ${counts.error} unavailable · ${(data.available_seconds/3600).toFixed(1)} hours retained`:(data.active?'The camera is building its first footage segment. Check back in a couple of minutes.':'No archived footage is available yet. Start camera monitoring to build the rolling archive.');
+      const labels={motion:flashing?'Red flashes':'Significant movement',quiet:flashing?'No red flashes detected':'No significant movement detected',pending:'Not analysed',error:'Analysis unavailable'};
       $('#review-list').innerHTML=segments.length?`<h2>Available times</h2>${segments.map(segment=>`<button type="button" class="review-segment ${segment.id===selectedId?'selected':''}" data-id="${escapeHTML(segment.id)}"><span>${new Date(segment.started*1000).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span><small>${labels[segment.motion.state]} · ${Math.max(1,Math.round((segment.ended-segment.started)/60))} min</small></button>`).join('')}`:total?'<p>No footage matches this filter yet. Analysis continues in the background; try All footage or Not analysed yet.</p>':'';
       document.querySelectorAll('.review-segment').forEach(button=>button.onclick=()=>selectSegment(button.dataset.id));
       if(!segments.some(segment=>segment.id===selectedId)){
@@ -342,6 +351,7 @@ function reviewPage() {
     if(page==='review'&&request===requestNumber)statusTimer=setTimeout(refresh,5000);
   };
   $('#movement-filter').onchange=refresh;
+  $('#activity-filter').onchange=()=>{selectedId=null;updateActivity();refresh();};
   $('#mark-form').onsubmit=async event=>{
     event.preventDefault();const submit=$('#mark-submit');submit.disabled=true;
     try {

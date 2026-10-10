@@ -113,10 +113,16 @@ class MotionIndex:
                     row = {}
             return row["result"] if row.get("signature") == signature else {"state": "pending", "windows": []}
 
+    def analyse_segment(self, segment):
+        return analyse(self.footage.directory / segment["id"], self.config.get().detection_mask, self.stop)
+
+    def ordered_segments(self):
+        return self.footage._segments()
+
     def scan(self, segment):
         signature = self.signature(segment)
         try:
-            result = analyse(self.footage.directory / segment["id"], self.config.get().detection_mask, self.stop)
+            result = self.analyse_segment(segment)
         except InterruptedError:
             return
         except (ValueError, OSError, cv2.error):
@@ -141,7 +147,7 @@ class MotionIndex:
     def _work(self):
         while not self.stop.is_set():
             try:
-                segments = self.footage._segments()
+                segments = self.ordered_segments()
                 # Oldest first: scan footage before its 24-hour retention expires.
                 for segment in segments:
                     if self.stop.is_set():

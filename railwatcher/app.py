@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from .config import ConfigStore
 from .engine import Engine
+from .flashes import FlashIndex
 from .motion import MotionIndex
 from .store import Store
 from .uploads import Uploader
@@ -27,15 +28,18 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     engine = Engine(config, store, model or Path(os.environ.get("RAILWATCHER_MODEL", "models/train.onnx")))
     uploader = Uploader(config, store)
     motion = MotionIndex(engine.footage, config)
+    flashes = FlashIndex(engine.footage, config)
 
     @asynccontextmanager
     async def lifespan(app):
         if workers:
             engine.start()
             motion.start()
+            flashes.start()
             uploader.start()
         yield
         if workers:
+            await asyncio.to_thread(flashes.close)
             await asyncio.to_thread(motion.close)
             await asyncio.to_thread(engine.close)
             await asyncio.to_thread(uploader.close)
@@ -43,6 +47,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     app = FastAPI(title="Railwatcher", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.config, app.state.store, app.state.engine = config, store, engine
     app.state.motion = motion
+    app.state.flashes = flashes
 
     @app.middleware("http")
     async def browser_guard(request, call_next):
@@ -106,8 +111,10 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
         return Response(jpeg, media_type="image/jpeg")
 
     @app.get("/api/buffer")
-    def footage_buffer(movement: Literal["all", "motion", "quiet", "pending", "error"] = "all"):
-        return motion.annotate(engine.footage.list(), movement)
+    def footage_buffer(movement: Literal["all", "motion", "quiet", "pending", "error"] = "all",
+                       activity: Literal["movement", "red_flashes"] = "movement"):
+        index = flashes if activity == "red_flashes" else motion
+        return {**index.annotate(engine.footage.list(), movement), "activity": activity}
 
     @app.get("/api/buffer/{filename}")
     def footage_segment(filename: str):

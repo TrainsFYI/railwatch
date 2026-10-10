@@ -128,4 +128,8 @@ The motion heuristic samples twice per second at 320×180, compensates uniform e
 
 ## Highlightable landmarks
 
-In Camera settings, choose **Add landmark**, enter a label, and drag a box on the live image. Select a saved landmark to rename it or draw a replacement box. Remove unwanted landmarks and use **Save settings** to persist changes. Boxes use image-relative coordinates and appear on the live dashboard. Up to 32 landmarks can be saved. Landmarks annotate fixed features; flashing-light detection is not enabled by creating a box.
+In Camera settings, choose **Add landmark**, enter a label, and drag a box on the live image. Select a saved landmark to rename it or draw a replacement box. Remove unwanted landmarks and use **Save settings** to persist changes. Boxes use image-relative coordinates and appear on the live dashboard. Up to 32 landmarks can be saved. Landmarks annotate fixed features and define the regions used by the red-flash review filter.
+
+## Crossing-light review
+
+With a landmark saved, **Review footage** defaults to **Red flashes in landmarks**. It examines the original archive frames, requiring at least three red pulses with intervening dark intervals and similar cadence. Jump buttons show the landmark label. **Significant movement** remains a separate option. Red-flash results persist, reanalyse when landmarks change, and index newest recordings first. These are crossing-activity candidates, not confirmed train detections. Tiny/distant lights, compression, occlusion, unusual flash cadence, or white/saturated lamps can cause missed events; other flashing red objects within a selected box can cause false matches. A real flashing example is needed to validate sensitivity for each camera.

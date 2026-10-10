@@ -80,6 +80,11 @@ async function main() {
     assert.equal(await page.locator('.review-segment').count(),1);
     assert.equal(await page.locator('.motion-jump').count(),2);
     assert.ok(await page.getByLabel('Start time',{exact:true}).inputValue());
+    await page.getByLabel('Look for').selectOption('red_flashes');
+    await page.getByText('1 segments with red flashes',{exact:false}).waitFor();
+    assert.equal(await page.getByLabel('Show footage').inputValue(),'motion');
+    await page.getByLabel('Look for').selectOption('movement');
+    await page.getByText('1 segments with significant movement',{exact:false}).waitFor();
     await page.getByLabel('Show footage').selectOption('all');
     await page.waitForFunction(()=>document.querySelectorAll('.review-segment').length===3);
     await page.getByLabel('Show footage').selectOption('pending');
