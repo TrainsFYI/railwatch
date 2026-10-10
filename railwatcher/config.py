@@ -7,6 +7,29 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+class Landmark(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    label: str = Field(min_length=1, max_length=80)
+    box: tuple[float, float, float, float]
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, label):
+        label = label.strip()
+        if not label:
+            raise ValueError("Give each landmark a label")
+        return label
+
+    @field_validator("box")
+    @classmethod
+    def validate_box(cls, box):
+        left, top, right, bottom = box
+        if not all(0 <= value <= 1 for value in box) or left >= right or top >= bottom:
+            raise ValueError("Landmark boxes must have positive size inside the camera image")
+        return box
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     name: str = Field(default="My railway camera", min_length=1, max_length=80)
@@ -18,6 +41,7 @@ class Settings(BaseModel):
     field_of_view: float = Field(default=70, ge=10, le=160)
     confidence: float = Field(default=0.55, ge=0.1, le=0.99)
     detection_mask: list[tuple[float, float]] = Field(default_factory=list, max_length=32)
+    landmarks: list[Landmark] = Field(default_factory=list, max_length=32)
     confirmations: int = Field(default=3, ge=1, le=10)
     pre_roll: int = Field(default=12, ge=3, le=30)
     post_roll: int = Field(default=15, ge=3, le=60)
@@ -27,6 +51,13 @@ class Settings(BaseModel):
     upload_url: str = Field(default="", max_length=2048)
     enabled: bool = False
     setup_complete: bool = False
+
+    @field_validator("landmarks")
+    @classmethod
+    def validate_landmarks(cls, landmarks):
+        if len({landmark.id for landmark in landmarks}) != len(landmarks):
+            raise ValueError("Landmark identifiers must be unique")
+        return landmarks
 
     @field_validator("detection_mask")
     @classmethod

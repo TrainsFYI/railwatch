@@ -2,6 +2,7 @@ const $ = (q) => document.querySelector(q);
 const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let config, step = 0, page = 'setup', map, marker, wedge, previewTimer, statusTimer, offset = 0;
 let sourceType = 'usb', locationChosen = false, detectionMask = [];
+let landmarks = [], selectedLandmark = '', landmarkDrag = null;
 const stepNames = ['Camera', 'Location', 'Upload', 'Review'];
 function updateThemeToggle() {
   const dark = document.documentElement.dataset.theme === 'dark';
@@ -81,6 +82,19 @@ function drawMask() {
       context.fillStyle = '#d6eb94'; context.fill(); context.strokeStyle = '#142033'; context.lineWidth = 1.5; context.stroke();
     }
   }
+  const boxes = page === 'settings' ? landmarks : (config.landmarks || []);
+  for (const landmark of boxes) {
+    const [left, top, right, bottom] = landmark.box;
+    const x = left * rect.width, y = top * rect.height;
+    context.strokeStyle = landmark.id === selectedLandmark && page === 'settings' ? '#ffcf40' : '#57dbff';
+    context.fillStyle = 'rgba(87, 219, 255, .12)';
+    context.fillRect(x, y, (right-left)*rect.width, (bottom-top)*rect.height);
+    context.lineWidth = 2; context.strokeRect(x, y, (right-left)*rect.width, (bottom-top)*rect.height);
+    context.font = '12px sans-serif';
+    const width = Math.min(rect.width-x, context.measureText(landmark.label).width+8);
+    context.fillStyle = '#142033'; context.fillRect(x, Math.max(0,y-19), width, 19);
+    context.fillStyle = '#fff'; context.fillText(landmark.label,x+4,Math.max(14,y-5),Math.max(1,width-8));
+  }
   const count = $('#mask-count');
   if (count) count.textContent = detectionMask.length >= 3 ? `${detectionMask.length} points · active` : detectionMask.length ? `${detectionMask.length} of 3 points` : 'Full frame';
   const undo = $('#mask-undo');
@@ -90,6 +104,7 @@ function setupMaskEditor() {
   const canvas = $('#mask-canvas');
   if (!canvas) return;
   canvas.addEventListener('click', event => {
+    if ($('#camera-edit-mode')?.value === 'landmarks') return;
     if (detectionMask.length >= 32) return toast('Detection areas can have up to 32 points.');
     const rect = canvas.getBoundingClientRect();
     detectionMask = [...detectionMask, [
@@ -102,6 +117,50 @@ function setupMaskEditor() {
   $('#mask-clear').onclick = () => { detectionMask = []; drawMask(); };
   window.onresize = drawMask;
   drawMask();
+}
+function landmarkEditorHTML() {
+  return `<div class="landmark-editor"><h3>Highlightable landmarks</h3><p>Label fixed features such as crossing lights or a gate. Select a landmark, then drag a box around it. Drag again to replace its box.</p><label for="camera-edit-mode">Image editing mode</label><select id="camera-edit-mode"><option value="detection">Detection area</option><option value="landmarks">Landmark boxes</option></select><div class="landmark-controls"><div><label for="landmark-select">Selected landmark</label><select id="landmark-select"></select></div><button type="button" class="secondary" id="landmark-add">Add landmark</button></div><label for="landmark-label">Landmark label</label><input id="landmark-label" maxlength="80" placeholder="e.g. Crossing light, left"><button type="button" class="text-button" id="landmark-remove">Remove selected landmark</button><p class="hint">Save settings to keep your boxes and labels. These highlights do not yet detect flashing lights.</p></div>`;
+}
+function setupLandmarkEditor() {
+  const select = $('#landmark-select'), label = $('#landmark-label'), canvas = $('#mask-canvas');
+  const current = () => landmarks.find(item => item.id === selectedLandmark);
+  function refresh() {
+    select.innerHTML = landmarks.length ? landmarks.map(item=>`<option value="${escapeHTML(item.id)}">${escapeHTML(item.label || 'Unnamed landmark')}</option>`).join('') : '<option value="">No landmarks yet</option>';
+    select.value = selectedLandmark; select.disabled = !landmarks.length;
+    label.value = current()?.label || ''; label.disabled = !current();
+    $('#landmark-remove').disabled = !current(); $('#landmark-add').disabled = landmarks.length >= 32;
+    drawMask();
+  }
+  select.onchange = () => { selectedLandmark = select.value; $('#camera-edit-mode').value = 'landmarks'; refresh(); };
+  label.oninput = () => { if(current()){current().label = label.value; select.selectedOptions[0].textContent=label.value || 'Unnamed landmark'; drawMask();} };
+  $('#landmark-add').onclick = () => {
+    if(landmarks.length >= 32) return;
+    selectedLandmark = `landmark-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    landmarks.push({id:selectedLandmark,label:`Landmark ${landmarks.length+1}`,box:[.4,.4,.6,.6]});
+    $('#camera-edit-mode').value = 'landmarks'; refresh(); label.focus(); label.select();
+  };
+  $('#landmark-remove').onclick = () => { landmarks = landmarks.filter(item=>item.id!==selectedLandmark); selectedLandmark=landmarks[0]?.id || ''; refresh(); };
+  $('#camera-edit-mode').onchange = () => { landmarkDrag = null; drawMask(); };
+  const point = event => { const rect=canvas.getBoundingClientRect(); return [Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))]; };
+  canvas.onpointerdown = event => {
+    if($('#camera-edit-mode').value !== 'landmarks') return;
+    if(!current()) return toast('Add a landmark first.');
+    if(event.button !== 0) return;
+    event.preventDefault(); landmarkDrag={start:point(event),original:[...current().box],id:selectedLandmark}; canvas.setPointerCapture(event.pointerId);
+  };
+  canvas.onpointermove = event => {
+    if(!landmarkDrag) return;
+    const [x,y]=point(event),[sx,sy]=landmarkDrag.start;
+    current().box=[Math.min(x,sx),Math.min(y,sy),Math.max(x,sx),Math.max(y,sy)]; drawMask();
+  };
+  const finish = cancelled => {
+    if(!landmarkDrag) return;
+    const item=landmarks.find(item=>item.id===landmarkDrag.id);
+    if(item && (cancelled || item.box[2]-item.box[0]<.003 || item.box[3]-item.box[1]<.003)) item.box=landmarkDrag.original;
+    landmarkDrag=null; drawMask();
+  };
+  canvas.onpointerup = () => finish(false); canvas.onpointercancel = () => finish(true);
+  refresh();
 }
 function startPreview() {
   clearTimeout(previewTimer);
@@ -297,18 +356,20 @@ function reviewPage() {
 function settingsPage() {
   cleanup(); page='settings'; locationChosen=config.latitude!==null&&config.longitude!==null; sourceType=config.source_type;
   detectionMask = (config.detection_mask || []).map(point => [...point]);
+  landmarks = (config.landmarks || []).map(item=>({...item,box:[...item.box]}));
+  selectedLandmark=landmarks[0]?.id || ''; landmarkDrag=null;
   $('#app').innerHTML=`<div class="intro"><div><h1>Settings</h1><p>Camera, location, detection and upload configuration.</p></div><button class="secondary" id="back-dashboard">Back to dashboard</button></div><form id="settings-form"><div class="settings-grid">
     <section class="card"><h2>Camera</h2><label for="settings-name">Camera name</label><input id="settings-name" maxlength="80" required value="${escapeHTML(config.name)}"><label for="settings-source-type">Video source</label><select id="settings-source-type"><option value="usb" ${sourceType==='usb'?'selected':''}>USB camera</option><option value="rtsp" ${sourceType==='rtsp'?'selected':''}>RTSP network stream</option></select><div id="settings-source-field"></div></section>
     <section class="card"><h2>Location and direction</h2><p>Place the camera on the map. Railway lines are shown over satellite imagery.</p><div class="inline-inputs"><div><label for="latitude">Latitude</label><input id="latitude" type="number" step="any" min="-85" max="85" value="${config.latitude??''}" required></div><div><label for="longitude">Longitude</label><input id="longitude" type="number" step="any" min="-180" max="180" value="${config.longitude??''}" required></div></div><div class="map-controls"><button class="secondary" type="button" id="go-coordinates">Show coordinates</button><button class="secondary" type="button" id="locate">Use my location</button></div><label class="bearing-label" for="bearing"><span>Camera direction</span><span id="bearing-value">${config.bearing}° · ${compass(config.bearing)}</span></label><input id="bearing" type="range" min="0" max="359" value="${config.bearing}"><label class="bearing-label" for="fov"><span>Field of view</span><span id="fov-value">${config.field_of_view}°</span></label><input id="fov" type="range" min="10" max="160" value="${config.field_of_view}"></section>
     <section class="card settings-map"><div id="map"></div><p class="map-note" id="map-message">Click the map to place the camera. Drag to adjust.</p></section>
     <section class="card"><h2>Detection and storage</h2><div class="inline-inputs"><div><label for="confidence">Detection confidence</label><input id="confidence" type="number" min="0.1" max="0.99" step="0.05" value="${config.confidence}"></div><div><label for="confirmations">Confirmations</label><input id="confirmations" type="number" min="1" max="10" step="1" value="${config.confirmations}"></div></div><div class="inline-inputs"><div><label for="pre-roll">Pre-roll (seconds)</label><input id="pre-roll" type="number" min="3" max="30" value="${config.pre_roll}"></div><div><label for="post-roll">Post-roll (seconds)</label><input id="post-roll" type="number" min="3" max="60" value="${config.post_roll}"></div></div><div class="inline-inputs"><div><label for="max-clip">Maximum clip (seconds)</label><input id="max-clip" type="number" min="30" max="900" value="${config.max_clip_seconds}"></div><div><label for="storage">Storage limit (GB)</label><input id="storage" type="number" min="1" max="1000" step="0.25" value="${config.storage_gb}"></div></div></section>
     <section class="card"><h2>TrainsFYI upload</h2><p>Clips stay on this device until an upload endpoint is configured.</p><label for="api-key">API key</label><input id="api-key" type="password" autocomplete="off" placeholder="${config.has_api_key?'Key saved. Leave blank to keep it.':'API key'}"><label><input id="clear-key" type="checkbox"> Remove saved API key</label><label for="upload-url">Upload endpoint</label><input id="upload-url" type="url" value="${escapeHTML(config.upload_url)}" placeholder="HTTPS upload endpoint"></section>
-    <div class="full-width">${previewHTML('settings-mask')}</div>
+    <div class="full-width">${previewHTML('settings-mask')}${landmarkEditorHTML()}</div>
   </div><div id="error" class="error-box" hidden></div><div class="actions"><button class="secondary" type="button" id="cancel-settings">Cancel</button><span class="hint">Settings are saved on this device.</span><button id="save-settings">Save settings</button></div></form>`;
   $('#back-dashboard').onclick=dashboard; $('#cancel-settings').onclick=dashboard;
-  settingsSourceField(); setupMaskEditor(); startPreview(); $('#settings-source-type').onchange=()=>{sourceType=$('#settings-source-type').value;settingsSourceField();};
+  settingsSourceField(); setupMaskEditor(); setupLandmarkEditor(); startPreview(); $('#settings-source-type').onchange=()=>{sourceType=$('#settings-source-type').value;settingsSourceField();};
   mountMap(); bindLocationControls();
-  $('#settings-form').onsubmit=async event=>{event.preventDefault();const button=$('#save-settings');button.disabled=true;$('#error').hidden=true;try{const [latitude,longitude]=coordinates();const source=$('#settings-source').value.trim();if(!source&&sourceType!==config.source_type)throw new Error('Enter a camera address or device.');if(detectionMask.length>0&&detectionMask.length<3)throw new Error('Add at least three points for a detection area, or clear it to use the full image.');config=await api('config','PATCH',{name:$('#settings-name').value.trim(),source_type:sourceType,source:source||null,detection_mask:detectionMask,latitude,longitude,bearing:+$('#bearing').value,field_of_view:+$('#fov').value,confidence:+$('#confidence').value,confirmations:+$('#confirmations').value,pre_roll:+$('#pre-roll').value,post_roll:+$('#post-roll').value,max_clip_seconds:+$('#max-clip').value,storage_gb:+$('#storage').value,api_key:$('#clear-key').checked?'':($('#api-key').value.trim()||null),upload_url:$('#upload-url').value.trim()});toast('Settings saved.');settingsPage();}catch(e){error(e.message);}finally{if(button.isConnected)button.disabled=false;}};
+  $('#settings-form').onsubmit=async event=>{event.preventDefault();const button=$('#save-settings');button.disabled=true;$('#error').hidden=true;try{const [latitude,longitude]=coordinates();const source=$('#settings-source').value.trim();if(!source&&sourceType!==config.source_type)throw new Error('Enter a camera address or device.');if(detectionMask.length>0&&detectionMask.length<3)throw new Error('Add at least three points for a detection area, or clear it to use the full image.');config=await api('config','PATCH',{name:$('#settings-name').value.trim(),source_type:sourceType,source:source||null,detection_mask:detectionMask,landmarks,latitude,longitude,bearing:+$('#bearing').value,field_of_view:+$('#fov').value,confidence:+$('#confidence').value,confirmations:+$('#confirmations').value,pre_roll:+$('#pre-roll').value,post_roll:+$('#post-roll').value,max_clip_seconds:+$('#max-clip').value,storage_gb:+$('#storage').value,api_key:$('#clear-key').checked?'':($('#api-key').value.trim()||null),upload_url:$('#upload-url').value.trim()});toast('Settings saved.');settingsPage();}catch(e){error(e.message);}finally{if(button.isConnected)button.disabled=false;}};
 }
 async function settingsSourceField() {
   const isRtsp=sourceType==='rtsp';
