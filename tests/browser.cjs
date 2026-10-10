@@ -76,6 +76,8 @@ async function main() {
       return route.fulfill({json:{available_seconds:360,active:true,motion_counts:{motion:1,quiet:1,pending:1,error:0},segments:candidates.filter(row=>filter==='all'||row.motion.state===filter)}});
     });
     await page.getByRole('button',{name:'Review footage'}).click();
+    await page.getByText('1 segments with train detections', {exact:false}).waitFor();
+    await page.getByLabel('Look for').selectOption('movement');
     await page.getByText('1 segments with significant movement', {exact:false}).waitFor();
     assert.equal(await page.locator('.review-segment').count(),1);
     assert.equal(await page.locator('.motion-jump').count(),2);

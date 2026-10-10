@@ -15,6 +15,7 @@ from .engine import Engine
 from .flashes import FlashIndex
 from .motion import MotionIndex
 from .store import Store
+from .trains import TrainIndex
 from .uploads import Uploader
 
 STATIC = Path(__file__).parent / "static"
@@ -29,17 +30,18 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     uploader = Uploader(config, store)
     motion = MotionIndex(engine.footage, config)
     flashes = FlashIndex(engine.footage, config)
+    trains = TrainIndex(engine.footage, config, engine.model_path)
 
     @asynccontextmanager
     async def lifespan(app):
         if workers:
             engine.start()
             motion.start()
-            flashes.start()
+            trains.start()
             uploader.start()
         yield
         if workers:
-            await asyncio.to_thread(flashes.close)
+            await asyncio.to_thread(trains.close)
             await asyncio.to_thread(motion.close)
             await asyncio.to_thread(engine.close)
             await asyncio.to_thread(uploader.close)
@@ -48,6 +50,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     app.state.config, app.state.store, app.state.engine = config, store, engine
     app.state.motion = motion
     app.state.flashes = flashes
+    app.state.trains = trains
 
     @app.middleware("http")
     async def browser_guard(request, call_next):
@@ -112,8 +115,8 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
 
     @app.get("/api/buffer")
     def footage_buffer(movement: Literal["all", "motion", "quiet", "pending", "error"] = "all",
-                       activity: Literal["movement", "red_flashes"] = "movement"):
-        index = flashes if activity == "red_flashes" else motion
+                       activity: Literal["movement", "red_flashes", "trains"] = "movement"):
+        index = trains if activity == "trains" else flashes if activity == "red_flashes" else motion
         return {**index.annotate(engine.footage.list(), movement), "activity": activity}
 
     @app.get("/api/buffer/{filename}")

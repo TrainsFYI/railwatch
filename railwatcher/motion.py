@@ -148,6 +148,7 @@ class MotionIndex:
         while not self.stop.is_set():
             try:
                 segments = self.ordered_segments()
+                scanned = 0
                 # Oldest first: scan footage before its 24-hour retention expires.
                 for segment in segments:
                     if self.stop.is_set():
@@ -155,6 +156,9 @@ class MotionIndex:
                     if self.result(segment)["state"] == "pending":
                         self.scan(segment)
                         self.stop.wait(0.05)
+                        scanned += 1
+                        if scanned >= getattr(self, 'scan_limit', float('inf')):
+                            break
                 live = {segment["id"] for segment in segments}
                 with self.lock:
                     self.cache = {key: row for key, row in self.cache.items() if key in live}

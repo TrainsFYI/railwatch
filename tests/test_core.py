@@ -21,19 +21,28 @@ from railwatcher.store import Store
 from railwatcher.uploads import Uploader
 
 
-def test_trigger_requires_consecutive_detections_and_keeps_tail():
+def test_trigger_confirms_recent_detections_despite_brief_dips_and_keeps_tail():
     trigger = Trigger(3, 15)
     assert trigger.feed(True, 1) is None
     assert trigger.feed(False, 2) is None
     assert trigger.feed(True, 3) is None
-    assert trigger.feed(True, 4) is None
-    assert trigger.feed(True, 5) == "start"
-    assert trigger.first_positive == 3
+    assert trigger.feed(True, 4) == "start"
+    assert trigger.first_positive == 1
     assert trigger.feed(False, 15) is None
     assert trigger.feed(True, 16) is None
     assert trigger.feed(False, 30) is None
     assert trigger.feed(False, 31) == "end"
     assert not trigger.active
+
+
+def test_trigger_does_not_accumulate_isolated_detections():
+    trigger = Trigger(3, 15)
+    for stamp in (1, 7, 13, 19):
+        assert trigger.feed(True, stamp) is None
+    assert trigger.feed(True, 20) is None
+    assert trigger.feed(False, 21) is None
+    assert trigger.feed(True, 22) == 'start'
+    assert trigger.first_positive == 19
 
 
 @pytest.mark.parametrize(

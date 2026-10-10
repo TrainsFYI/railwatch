@@ -21,6 +21,12 @@ python3 -m venv /opt/railwatcher/venv
 /opt/railwatcher/venv/bin/pip install "$SOURCE_DIR"
 if [[ -f "$MODEL_FILE" ]]; then
   install -m 0644 "$MODEL_FILE" /opt/railwatcher/models/train.onnx
+  if [[ -f "${MODEL_FILE%.onnx}.json" ]]; then
+    install -m 0644 "${MODEL_FILE%.onnx}.json" /opt/railwatcher/models/train.json
+  else
+    # Do not retain a previous multi-class mapping beside legacy weights.
+    rm -f /opt/railwatcher/models/train.json
+  fi
 else
   echo 'Model missing. Setup will work; detection waits for /opt/railwatcher/models/train.onnx.'
 fi

@@ -35,7 +35,7 @@ For one camera, start with:
    ```
 
    If the Pi hostname does not resolve, use its IP address instead of `railwatcher.local`. Alternatively, clone your Railwatcher repository directly on the Pi.
-3. If you have the train detector model, place it at `models/train.onnx` in the project directory before installing. The model is not included in source control; see [Model export](#model-export). If you export it on your computer after copying the project, transfer it with `scp models/train.onnx pi@railwatcher.local:~/railwatcher/models/train.onnx` (replace the username/host as needed). Without the model, the web UI and camera preview still work, but train detection stays unavailable.
+3. If you have the train detector model, place it at `models/train.onnx` in the project directory before installing. The model is not included in source control; see [Model export](#model-export). If you export it on your computer after copying the project, transfer it with `scp models/train.onnx models/train.json pi@railwatcher.local:~/railwatcher/models/` (replace the username/host as needed). Without the model, the web UI and camera preview still work, but train detection stays unavailable.
 4. Connect the USB camera, or configure the network camera's RTSP stream and confirm it is reachable from the Pi. On the Pi, run:
 
    ```sh
@@ -43,7 +43,7 @@ For one camera, start with:
    sudo bash scripts/install.sh
    ```
 
-   The installer adds FFmpeg and Python dependencies, creates the `railwatcher` system service, and prints the local URL. It copies `models/train.onnx` if present. Installation needs an internet connection to download system and Python packages.
+   The installer adds FFmpeg and Python dependencies, creates the `railwatcher` system service, and prints the local URL. It copies `models/train.onnx` and its accompanying `train.json` if present. Installation needs an internet connection to download system and Python packages.
 5. From a phone or computer on the same home network, open `http://railwatcher.local:8787` (or the URL printed by the installer). On first visit, choose the camera, set its position and direction on the map, and complete setup. The live dashboard opens on later visits; use **Settings** to change the camera or other configuration.
 
 The page is available to anyone on the local network; no login is required. Use it on a trusted network and do not port-forward the service to the public internet. Camera credentials and API keys are withheld from the configuration response and stored in the restricted data directory.
@@ -58,7 +58,7 @@ sudo journalctl -u railwatcher -f
 
 ## Model export
 
-Export on a development machine, then copy the resulting ONNX file to the Pi. Only load a trusted checkpoint: PyTorch checkpoints can contain executable code.
+Export on a development machine, then copy the resulting ONNX file and JSON manifest to the Pi. Only load a trusted checkpoint: PyTorch checkpoints can contain executable code.
 
 ```sh
 python3.12 -m venv .venv
@@ -67,7 +67,7 @@ python3.12 -m venv .venv
   /path/to/yolov8n-trains.pt
 ```
 
-This uses the TrainsFYI **single train class (class 0)** checkpoint, exports a fixed 640×640 YOLOv8 graph without NMS, validates the output with OpenCV, and writes SHA-256 provenance to `models/train.json`. The source checkout is not modified. Model binaries are ignored by git. Deployment only needs the ONNX file; training/export packages stay on the development machine. An already-installed Pi expects `/opt/railwatcher/models/train.onnx`. Missing or incompatible models are visible on the dashboard, not silently replaced with a motion detector.
+This accepts either the TrainsFYI single-class checkpoint or a COCO YOLOv8 checkpoint with a named train class. It exports a fixed 640×640 graph without NMS, validates the output with OpenCV, and writes class mapping and SHA-256 provenance to `models/train.json`. The source checkout is not modified. Model binaries are ignored by git. Deployment needs the ONNX file and its JSON manifest; training/export packages stay on the development machine. An already-installed Pi expects `/opt/railwatcher/models/train.onnx`. Missing or incompatible models are visible on the dashboard, not silently replaced with a motion detector.
 
 Ultralytics also documents [NCNN as a Raspberry Pi optimization](https://docs.ultralytics.com/guides/raspberry-pi/). This first client uses OpenCV/ONNX for a smaller runtime integration; actual inference speed and CPU/thermal load still need benchmarking on the target Pi. Review the existing model's licensing and the upstream export tool's terms before distributing model binaries.
 
@@ -110,11 +110,11 @@ The browser smoke test launches a disposable local server, exercises the complet
 
 ## Recording behavior and limits
 
-The detector keeps 12 seconds of recent frames in RAM for event pre-roll, confirms three consecutive positive samples, and records until 15 seconds after the last positive. Preview, inference and event clips use 960×540 at 10 fps; inference samples the latest frame independently, at most twice per second. In parallel, the camera feed is encoded at 640×360 and 5 fps into two-minute H.264 files, retained for up to 24 hours. The 350 kbit/s bitrate ceiling uses about 3.8 GB per day at the maximum rate. The **Review footage** page lets you play retained segments and select up to 15 minutes to save as a manually marked train sighting; it joins the normal history and upload queue. The current segment is finalized at each segment boundary, so the newest footage can take up to two minutes to appear. A gap in camera capture is not filled with fabricated footage.
+The detector keeps 12 seconds of recent frames in RAM for event pre-roll, confirms three positive samples within five seconds, and records until 15 seconds after the last positive. Preview, inference and event clips use 960×540 at 10 fps; inference samples the latest frame independently, at most twice per second. In parallel, the camera feed is encoded at 640×360 and 5 fps into two-minute H.264 files, retained for up to 24 hours. The 350 kbit/s bitrate ceiling uses about 3.8 GB per day at the maximum rate. The **Review footage** page lets you play retained segments and select up to 15 minutes to save as a manually marked train sighting; it joins the normal history and upload queue. The current segment is finalized at each segment boundary, so the newest footage can take up to two minutes to appear. A gap in camera capture is not filled with fabricated footage.
 
 Recordings longer than five minutes are split into clips with overlapping pre-roll. A stationary train can keep the detector active; this version detects train presence rather than estimating movement or counting individual trains. Dashboard totals count recording events, including interrupted attempts, not unique physical trains. Restart/disconnection closes the current recording where possible; footage while disconnected cannot be recovered.
 
-The detector runs at night, but the current TrainsFYI checkpoint has not been validated here on nighttime/IR footage. Camera illumination, IR reflections, passing cars and rain need field testing and likely more training data. There is no promise of complete recall, train identity or direction-of-travel inference. Camera bearing describes where the lens faces, not where the train is headed.
+The detector runs at night, but the installed model has not been validated here on nighttime/IR footage. Camera illumination, IR reflections, passing cars and rain need field testing and likely more training data. There is no promise of complete recall, train identity or direction-of-travel inference. Camera bearing describes where the lens faces, not where the train is headed.
 
 Storage is a recording budget, with a conservative reserve for the next maximum-length clip and 200 MB of free-disk headroom. The rolling archive removes footage older than 24 hours and sheds its oldest segments if free disk space drops below 1 GB; the dashboard reports the footage currently available. A 64 GB microSD card is the practical minimum for the OS, event clips and rolling archive; a USB 3 SSD is recommended for sustained camera recording. Metadata is retained after uploaded videos are pruned. Queued clips remain local until accepted. There is no automatic deletion of unsubmitted sightings. Pausing detection also pauses camera capture and the rolling archive. Audio is never captured.
 
@@ -132,4 +132,12 @@ In Camera settings, choose **Add landmark**, enter a label, and drag a box on th
 
 ## Crossing-light review
 
-With a landmark saved, **Review footage** defaults to **Red flashes in landmarks**. It examines the original archive frames, requiring at least three red pulses with intervening dark intervals and similar cadence. Jump buttons show the landmark label. **Significant movement** remains a separate option. Red-flash results persist, reanalyse when landmarks change, and index newest recordings first. These are crossing-activity candidates, not confirmed train detections. Tiny/distant lights, compression, occlusion, unusual flash cadence, or white/saturated lamps can cause missed events; other flashing red objects within a selected box can cause false matches. A real flashing example is needed to validate sensitivity for each camera.
+**Red flashes in landmarks** remains available for reviewing cached results, but its background indexing is paused. **Train model detections** is the default review filter. It examines the original archive frames, requiring at least three red pulses with intervening dark intervals and similar cadence. Jump buttons show the landmark label. **Significant movement** remains a separate option. Red-flash results persist, reanalyse when landmarks change, and index newest recordings first. These are crossing-activity candidates, not confirmed train detections. Tiny/distant lights, compression, occlusion, unusual flash cadence, or white/saturated lamps can cause missed events; other flashing red objects within a selected box can cause false matches. A real flashing example is needed to validate sensitivity for each camera.
+
+## Train detection and archive review
+
+**Review footage → Train model detections** is the default. Archive analysis uses the same weights, saved area, confidence threshold and confirmations within five seconds as live recording, with pre/post-roll for review windows. Archive inference samples once per second. Existing footage is analysed newest first, and results invalidate when the model or relevant settings change. Archive analysis does not create sightings or upload clips automatically.
+
+Model export supports both a single-class checkpoint and standard COCO YOLOv8 checkpoints. The accompanying `train.json` identifies the train class (COCO class 6), class count, provenance hashes and `focus_on_area`. With area focus enabled, inference crops to the saved area plus surrounding context before letterboxing, then maps detection centres back to the original image for polygon filtering. Keep the JSON alongside its ONNX model; multi-class models without the correct manifest are rejected. Legacy single-class models remain supported without a manifest.
+
+The server-261 VIA passage on 2026-10-10 exposed poor recall in the custom YOLOv8n checkpoint. YOLOv8m with track-area focus recognises the recorded passage at the existing 0.55 confidence threshold. This is a regression example, not a guarantee of recall across all trains, lighting, cameras or weather. Red-flash background indexing is paused; saved landmarks remain available.
