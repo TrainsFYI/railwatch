@@ -8,7 +8,9 @@ import cv2
 import numpy as np
 
 log = logging.getLogger(__name__)
-VERSION = 1
+VERSION = 2
+MIN_CHANGED_FRACTION = 0.15
+MIN_MOTION_SECONDS = 1.8
 
 
 def area_mask(shape, points):
@@ -40,7 +42,7 @@ def analyse(path, points, stop=None):
         raise ValueError("Footage could not be decoded")
 
     def finish_run():
-        if len(run) >= 3:
+        if len(run) >= 4 and run[-1] - run[0] >= MIN_MOTION_SECONDS - 0.01:
             windows.append({"started": round(max(0, run[0] - 0.5), 2), "ended": round(run[-1], 2)})
         run.clear()
 
@@ -60,7 +62,7 @@ def analyse(path, points, stop=None):
             if previous is not None:
                 fraction = changed_fraction(previous, gray, mask)
                 peak = max(peak, fraction)
-                if fraction >= 0.03:
+                if fraction >= MIN_CHANGED_FRACTION:
                     run.append(stamp)
                 else:
                     finish_run()

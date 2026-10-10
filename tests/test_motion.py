@@ -18,23 +18,29 @@ def video(path, kind):
         frame = np.full((180, 320, 3), 50, np.uint8)
         if kind == "exposure":
             frame.fill(50 + index * 3)
-        elif kind in {"inside", "outside", "flash"}:
-            x = 30 if kind == "outside" else 170
-            if kind != "flash" or index == 9:
-                y = 40 + (index // 3 % 5) * 18
-                frame[y:y+60, x:x+80] = 230
+        elif kind in {"inside", "outside", "flash", "minor", "brief"}:
+            x = 10 if kind == "outside" else 170
+            if (kind != "flash" or index == 9) and (kind != "brief" or index < 9):
+                if kind == "minor":
+                    y = 40 + (index // 3 % 5) * 18
+                    frame[y:y+60, x:x+20] = 230
+                else:
+                    y = (index // 3 % 2) * 90
+                    frame[y:y+90, x:x+130] = 230
         writer.write(frame)
     writer.release()
 
 
 @pytest.mark.parametrize("kind, expected", [("inside", "motion"), ("outside", "quiet"),
-                                           ("exposure", "quiet"), ("still", "quiet"), ("flash", "quiet")])
+                                           ("exposure", "quiet"), ("still", "quiet"), ("flash", "quiet"), ("minor", "quiet"), ("brief", "quiet")])
 def test_motion_is_sustained_and_inside_polygon(tmp_path, kind, expected):
     path = tmp_path / "sample.mp4"
     video(path, kind)
     result = analyse(path, [(0.5, 0.1), (0.95, 0.1), (0.95, 0.9), (0.5, 0.9)])
     assert result["state"] == expected
     assert bool(result["windows"]) == (expected == "motion")
+    if kind == "minor":
+        assert 0.03 < result["peak_fraction"] < 0.15
     for window in result["windows"]:
         assert 0 <= window["started"] < window["ended"] < 8
 
