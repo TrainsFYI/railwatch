@@ -3,6 +3,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 
 from .config import ConfigStore
 from .engine import Engine
+from .motion import MotionIndex
 from .store import Store
 from .uploads import Uploader
 
@@ -24,19 +26,23 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     config, store = ConfigStore(directory), Store(directory)
     engine = Engine(config, store, model or Path(os.environ.get("RAILWATCHER_MODEL", "models/train.onnx")))
     uploader = Uploader(config, store)
+    motion = MotionIndex(engine.footage, config)
 
     @asynccontextmanager
     async def lifespan(app):
         if workers:
             engine.start()
+            motion.start()
             uploader.start()
         yield
         if workers:
+            await asyncio.to_thread(motion.close)
             await asyncio.to_thread(engine.close)
             await asyncio.to_thread(uploader.close)
 
     app = FastAPI(title="Railwatcher", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.config, app.state.store, app.state.engine = config, store, engine
+    app.state.motion = motion
 
     @app.middleware("http")
     async def browser_guard(request, call_next):
@@ -100,8 +106,8 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
         return Response(jpeg, media_type="image/jpeg")
 
     @app.get("/api/buffer")
-    def footage_buffer():
-        return engine.footage.list()
+    def footage_buffer(movement: Literal["all", "motion", "quiet", "pending", "error"] = "all"):
+        return motion.annotate(engine.footage.list(), movement)
 
     @app.get("/api/buffer/{filename}")
     def footage_segment(filename: str):

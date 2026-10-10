@@ -34,7 +34,7 @@ async function boot() {
     config = await api('config');
     sourceType = config.source_type;
     detectionMask = config.detection_mask || [];
-    if (config.setup_complete) dashboard();
+    if (config.setup_complete) { if (new URLSearchParams(location.search).has("footage")) reviewPage(); else dashboard(); }
     else setup(0);
   } catch(e) {
     $('#app').innerHTML = `<section class="card"><h1>Railwatcher is unavailable</h1><p>${escapeHTML(e.message)}</p><button id="reload">Retry</button></section>`;
@@ -230,36 +230,69 @@ function localDateTime(epoch) {
 }
 function reviewPage() {
   cleanup(); page='review';
-  $('#app').innerHTML=`<div class="intro"><div><h1>Review footage</h1><p>Browse the rolling camera archive and mark trains the detector missed.</p></div><button class="secondary" id="back-review">Back to dashboard</button></div><div class="review-layout"><section class="card review-player"><video id="archive-video" controls playsinline preload="metadata"></video><div class="review-note" id="review-note">Loading available footage…</div><div class="review-list" id="review-list"></div></section><section class="card mark-card"><h2>Mark a train</h2><p>Select the start and end of the train’s passage. Railwatcher saves it as a manual sighting and queues it for upload when configured.</p><form id="mark-form" hidden><label for="mark-start">Start time</label><input id="mark-start" type="datetime-local" step="1" required><label for="mark-end">End time</label><input id="mark-end" type="datetime-local" step="1" required><button id="mark-submit" type="submit">Mark train and save clip</button></form><p class="hint">Selected footage must be within the available archive and shorter than 15 minutes.</p></section></div>`;
+  $('#app').innerHTML=`<div class="intro"><div><h1>Review footage</h1><p>Find movement inside your detection area and review possible train passages.</p></div><button class="secondary" id="back-review">Back to dashboard</button></div><div class="review-layout"><section class="card review-player"><div class="archive-view"><video id="archive-video" controls playsinline preload="metadata"></video><svg class="archive-area" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Tracked detection area"><polygon points="${detectionMask.map(([x,y])=>`${x*100},${y*100}`).join(' ')}"></polygon></svg></div><label for="movement-filter">Show footage</label><select id="movement-filter"><option value="motion">Movement in tracked area</option><option value="all">All footage</option><option value="quiet">No movement detected</option><option value="pending">Not analysed yet</option><option value="error">Analysis unavailable</option></select><p class="hint">Movement candidates can include vehicles, people, foliage and shadows. They are not confirmed trains. No movement detected does not prove an empty track.</p><div class="review-note" id="review-note" role="status">Loading available footage…</div><div id="motion-windows"></div><div class="review-list" id="review-list"></div></section><section class="card mark-card"><h2>Mark a train</h2><p>Select the start and end of the train’s passage. Railwatcher saves it as a manual sighting and queues it for upload when configured.</p><form id="mark-form" hidden><label for="mark-start">Start time</label><input id="mark-start" type="datetime-local" step="1" required><label for="mark-end">End time</label><input id="mark-end" type="datetime-local" step="1" required><button id="mark-submit" type="submit">Mark train and save clip</button></form><p class="hint">Selected footage must be within the available archive and shorter than 15 minutes.</p></section></div>`;
   $('#back-review').onclick=dashboard;
-  api('buffer').then(data=>{
-    if(page!=='review')return;
-    const list=$('#review-list'), note=$('#review-note');
-    if(!data.segments.length){note.textContent=data.active?'The camera is building its first footage segment. Check back in a couple of minutes.':'No archived footage is available yet. Start camera monitoring to build the rolling archive.';return;}
-    const segments=[...data.segments].reverse();
-    const hours=data.available_seconds/3600;
-    note.textContent=`${segments.length} playable segments · ${hours<1?`${Math.round(hours*60)} minutes`:`${hours.toFixed(1)} hours`} available · up to 24 hours retained`;
+  let selectedId=null, segments=[], requestNumber=0;
+  const linkedId=new URLSearchParams(location.search).get('footage');
+  let linkedPending=Boolean(linkedId);
+  if(linkedPending)$('#movement-filter').value='all';
+  const selectWindow=(segment, window)=>{
+    const video=$('#archive-video');
+    const seek=Math.max(0, window.started-2);
+    if(video.readyState>=1)video.currentTime=seek;
+    else video.onloadedmetadata=()=>{video.currentTime=seek;video.onloadedmetadata=null;};
+    $('#mark-start').value=localDateTime(segment.started+seek);
+    $('#mark-end').value=localDateTime(Math.min(segment.ended,segment.started+window.ended+3));
+  };
+  const selectSegment=id=>{
+    const segment=segments.find(row=>row.id===id);if(!segment)return;
+    selectedId=id;
+    document.querySelectorAll('.review-segment').forEach(button=>button.classList.toggle('selected',button.dataset.id===id));
+    const video=$('#archive-video');video.onloadedmetadata=null;video.src=segment.video_url;video.load();
     $('#mark-form').hidden=false;
-    list.innerHTML=`<h2>Available times</h2>${segments.map((segment,index)=>`<button type="button" class="review-segment" data-index="${index}"><span>${new Date(segment.started*1000).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span><small>${Math.max(1,Math.round((segment.ended-segment.started)/60))} min</small></button>`).join('')}`;
-    const selectSegment=index=>{
-      const segment=segments[index];if(!segment)return;
-      document.querySelectorAll('.review-segment').forEach(button=>button.classList.toggle('selected',+button.dataset.index===index));
-      const video=$('#archive-video');video.src=segment.video_url;video.load();
-      const end=segment.ended, start=Math.max(segment.started,end-30);
-      $('#mark-start').value=localDateTime(start);$('#mark-end').value=localDateTime(end);
-    };
-    document.querySelectorAll('.review-segment').forEach(button=>button.onclick=()=>selectSegment(+button.dataset.index));
-    selectSegment(0);
-    $('#mark-form').onsubmit=async event=>{
-      event.preventDefault();const submit=$('#mark-submit');submit.disabled=true;
-      try {
-        const result=await api('buffer/mark','POST',{started:Date.parse($('#mark-start').value)/1000,ended:Date.parse($('#mark-end').value)/1000});
-        toast('Manual train sighting saved to historical events.');
-        if(result.video_url){const video=$('#archive-video');video.src=result.video_url;video.load();}
-      } catch(e) { toast(e.message); }
-      finally { if(submit.isConnected)submit.disabled=false; }
-    };
-  }).catch(e=>{if(page==='review')$('#review-note').textContent=e.message;});
+    $('#mark-start').value=localDateTime(segment.started);$('#mark-end').value=localDateTime(segment.ended);
+    const windows=segment.motion.windows;
+    $('#motion-windows').innerHTML=windows.length?`<p>Jump to movement:</p>${windows.map((window,index)=>`<button type="button" class="secondary motion-jump" data-index="${index}">${Math.floor(window.started/60)}:${String(Math.floor(window.started%60)).padStart(2,'0')}–${Math.floor(window.ended/60)}:${String(Math.ceil(window.ended%60)).padStart(2,'0')}</button>`).join('')}`:'';
+    document.querySelectorAll('.motion-jump').forEach(button=>button.onclick=()=>selectWindow(segment,windows[+button.dataset.index]));
+    if(windows.length)selectWindow(segment,windows[0]);
+  };
+  const refresh=async()=>{
+    clearTimeout(statusTimer);
+    const request=++requestNumber;
+    try {
+      const data=await api(`buffer?movement=${$('#movement-filter').value}`);
+      if(page!=='review'||request!==requestNumber)return;
+      segments=[...data.segments].reverse();
+      const counts=data.motion_counts, total=Object.values(counts).reduce((a,b)=>a+b,0);
+      const note=$('#review-note');
+      note.textContent=total?`${counts.motion} segments with movement · ${total-counts.pending} / ${total} analysed · ${counts.pending} waiting · ${counts.error} unavailable · ${(data.available_seconds/3600).toFixed(1)} hours retained`:(data.active?'The camera is building its first footage segment. Check back in a couple of minutes.':'No archived footage is available yet. Start camera monitoring to build the rolling archive.');
+      const labels={motion:'Movement',quiet:'No movement detected',pending:'Not analysed',error:'Analysis unavailable'};
+      $('#review-list').innerHTML=segments.length?`<h2>Available times</h2>${segments.map(segment=>`<button type="button" class="review-segment ${segment.id===selectedId?'selected':''}" data-id="${escapeHTML(segment.id)}"><span>${new Date(segment.started*1000).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span><small>${labels[segment.motion.state]} · ${Math.max(1,Math.round((segment.ended-segment.started)/60))} min</small></button>`).join('')}`:total?'<p>No footage matches this filter yet. Analysis continues in the background; try All footage or Not analysed yet.</p>':'';
+      document.querySelectorAll('.review-segment').forEach(button=>button.onclick=()=>selectSegment(button.dataset.id));
+      if(!segments.some(segment=>segment.id===selectedId)){
+        selectedId=null;
+        const video=$('#archive-video');video.pause();video.onloadedmetadata=null;video.removeAttribute('src');video.load();
+        $('#motion-windows').innerHTML='';$('#mark-form').hidden=true;
+        if(segments.length){
+          const linked=linkedPending&&segments.find(segment=>segment.id===linkedId);
+          selectSegment(linked?linked.id:segments[0].id);
+          linkedPending=false;
+        }
+      }
+    }catch(e){if(page==='review'&&request===requestNumber)$('#review-note').textContent=e.message;}
+    if(page==='review'&&request===requestNumber)statusTimer=setTimeout(refresh,5000);
+  };
+  $('#movement-filter').onchange=refresh;
+  $('#mark-form').onsubmit=async event=>{
+    event.preventDefault();const submit=$('#mark-submit');submit.disabled=true;
+    try {
+      const result=await api('buffer/mark','POST',{started:Date.parse($('#mark-start').value)/1000,ended:Date.parse($('#mark-end').value)/1000});
+      toast('Manual train sighting saved to historical events.');
+      if(result.video_url){const video=$('#archive-video');video.onloadedmetadata=null;video.src=result.video_url;video.load();}
+    }catch(e){toast(e.message);}
+    finally{if(submit.isConnected)submit.disabled=false;}
+  };
+  refresh();
 }
 function settingsPage() {
   cleanup(); page='settings'; locationChosen=config.latitude!==null&&config.longitude!==null; sourceType=config.source_type;

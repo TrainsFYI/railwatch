@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'railwatcher-browser-'));
 const port = Number(process.env.TEST_PORT || 18787);
 const base = `http://127.0.0.1:${port}`;
-const server = spawn(process.env.RAILWATCHER_PYTHON || '.venv/bin/python', ['-m', 'railwatcher', '--port', String(port), '--data', data, '--model', path.join(data, 'missing.onnx')], {stdio: ['ignore', 'pipe', 'pipe']});
+const server = process.env.RAILWATCHER_EXTERNAL_SERVER ? {exitCode:null,stderr:{on(){}},stdout:{on(){}},kill(){}} : spawn(process.env.RAILWATCHER_PYTHON || '.venv/bin/python', ['-m', 'railwatcher', '--port', String(port), '--data', data, '--model', path.join(data, 'missing.onnx')], {stdio: ['ignore', 'pipe', 'pipe']});
 let logs = '';
 server.stderr.on('data', d => logs += d.toString());
 server.stdout.on('data', d => logs += d.toString());
@@ -66,11 +66,44 @@ async function main() {
     await page.getByText(/No archived footage is available yet/).waitFor();
     await page.getByRole('button',{name:'Back to dashboard'}).click();
     await page.getByRole('heading',{name:'West junction'}).waitFor();
+    const candidates = [
+      {id:'motion.mp4',started:1791640000,ended:1791640120,video_url:'/test-motion.mp4',motion:{state:'motion',windows:[{started:12,ended:20},{started:60,ended:80}]}},
+      {id:'quiet.mp4',started:1791639880,ended:1791640000,video_url:'/test-quiet.mp4',motion:{state:'quiet',windows:[]}},
+      {id:'pending.mp4',started:1791639760,ended:1791639880,video_url:'/test-pending.mp4',motion:{state:'pending',windows:[]}},
+    ];
+    await page.route('**/api/buffer?*',route=>{
+      const filter=new URL(route.request().url()).searchParams.get('movement');
+      return route.fulfill({json:{available_seconds:360,active:true,motion_counts:{motion:1,quiet:1,pending:1,error:0},segments:candidates.filter(row=>filter==='all'||row.motion.state===filter)}});
+    });
+    await page.getByRole('button',{name:'Review footage'}).click();
+    await page.getByText('1 segments with movement', {exact:false}).waitFor();
+    assert.equal(await page.locator('.review-segment').count(),1);
+    assert.equal(await page.locator('.motion-jump').count(),2);
+    assert.ok(await page.getByLabel('Start time',{exact:true}).inputValue());
+    await page.getByLabel('Show footage').selectOption('all');
+    await page.waitForFunction(()=>document.querySelectorAll('.review-segment').length===3);
+    await page.getByLabel('Show footage').selectOption('pending');
+    await page.getByRole('button',{name:/Not analysed ·/}).waitFor();
+    assert.equal(await page.locator('.review-segment').count(),1);
+    await page.setViewportSize({width:390,height:844});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Mobile footage review overflows');
+    await page.screenshot({path:'artifacts/movement-mobile.png',fullPage:true});
+    await page.setViewportSize({width:1440,height:1000});
+    await page.getByLabel('Show footage').selectOption('error');
+    await page.getByText(/No footage matches this filter yet/).waitFor();
+    assert.equal(await page.locator('#mark-form').isVisible(),false);
+    await page.goto(base+'/?footage=motion.mp4');
+    await page.getByRole('heading',{name:'Review footage'}).waitFor();
+    await page.waitForFunction(()=>document.querySelectorAll('.review-segment').length===3);
+    assert.equal(await page.getByLabel('Show footage').inputValue(),'all');
+    assert.equal(await page.locator('.review-segment.selected').getAttribute('data-id'),'motion.mp4');
+    await page.getByRole('button',{name:'Back to dashboard'}).click();
+    await page.unroute('**/api/buffer?*');
     const saved = await page.evaluate(async()=> (await fetch('/api/config')).json());
     assert.equal(saved.bearing,135); assert.equal(saved.latitude,43.6426);
     assert.equal(saved.enabled,false); assert.equal(saved.has_api_key,true);
     assert.equal(saved.source,null); assert.ok(!JSON.stringify(saved).includes('private-camera-password'));
-    await page.reload();
+    await page.goto(base);
     await page.getByRole('heading',{name:'West junction'}).waitFor();
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:'artifacts/dashboard-mobile.png',fullPage:true});

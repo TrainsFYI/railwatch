@@ -5,6 +5,7 @@ import os
 import queue
 import re
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -112,7 +113,14 @@ class FootageBuffer:
         found = []
         for path in self.directory.glob("*.mp4"):
             match = SEGMENT_NAME.fullmatch(path.name)
-            if not match or not path.is_file() or path.stat().st_size == 0:
+            if not match:
+                continue
+            try:
+                file_stat = path.stat()
+                size = file_stat.st_size
+            except FileNotFoundError:
+                continue
+            if size == 0 or not stat.S_ISREG(file_stat.st_mode):
                 continue
             try:
                 started = dt.datetime.strptime(match.group(1), "%Y%m%dT%H%M%S").replace(
@@ -121,13 +129,13 @@ class FootageBuffer:
             except ValueError:
                 continue
             if started >= now - RETENTION_SECONDS - SEGMENT_SECONDS:
-                found.append((started, path))
+                found.append((started, path, size))
         found.sort()
         if self.active and found:
             # The last segment is still open in FFmpeg and has no MP4 index yet.
             found.pop()
         result = []
-        for index, (started, path) in enumerate(found):
+        for index, (started, path, size) in enumerate(found):
             next_start = found[index + 1][0] if index + 1 < len(found) else started + SEGMENT_SECONDS
             ended = min(next_start, started + SEGMENT_SECONDS, now)
             if ended > started:
@@ -135,7 +143,7 @@ class FootageBuffer:
                     "id": path.name,
                     "started": started,
                     "ended": ended,
-                    "bytes": path.stat().st_size,
+                    "bytes": size,
                     "video_url": f"/api/buffer/{path.name}",
                 })
         return result
