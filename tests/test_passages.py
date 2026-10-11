@@ -106,3 +106,18 @@ def test_capture_context_preserves_roi_model_and_unreviewed_pre_detection(tmp_pa
     assert context['training_intervals'][0] == {'start_seconds': 0, 'end_seconds': 120,
                                                'label': 'unreviewed_pre_detection'}
     assert settings.pre_roll == 120
+
+
+def test_training_intervals_match_serialized_fractional_utc_bounds(tmp_path):
+    from datetime import datetime
+    store = Store(tmp_path)
+    passages = Passages(store)
+    started, ended = 1791731628.1018257, 1791731685.1254895
+    identity = passages.start(Settings(), started + 12, 'a'*64)
+    part(store, 'fractional', started, ended)
+    passages.add_part(identity, 'fractional')
+    passages.end()
+    contract = passages.contract(passages.pending(), 'camera-id')
+    capture = contract['capture']
+    duration = (datetime.fromisoformat(capture['ended_at']) - datetime.fromisoformat(capture['started_at'])).total_seconds()
+    assert contract['camera_context']['training_intervals'][-1]['end_seconds'] == duration

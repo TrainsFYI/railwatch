@@ -177,11 +177,15 @@ class Passages:
         context = passage.get('camera_context')
         if context is not None:
             context = json.loads(json.dumps(context))
-            negative_end = max(0., min(end, passage['detected_started']) - start)
+            # Match the serialized microsecond UTC timebase exactly.
+            capture_start = datetime.fromisoformat(result['capture']['started_at'])
+            duration = (datetime.fromisoformat(result['capture']['ended_at']) - capture_start).total_seconds()
+            detected_offset = (datetime.fromisoformat(result['passage']['detected_started_at']) - capture_start).total_seconds()
+            negative_end = max(0., min(duration, detected_offset))
             context['training_intervals'] = ([{'start_seconds': 0., 'end_seconds': negative_end,
                                                'label': 'unreviewed_pre_detection'}] if negative_end > 0 else [])
-            if end-start > negative_end:
-                context['training_intervals'].append({'start_seconds': negative_end, 'end_seconds': end-start,
+            if duration > negative_end:
+                context['training_intervals'].append({'start_seconds': negative_end, 'end_seconds': duration,
                                                       'label': 'unreviewed_train_candidate'})
             result.update(schema_version='2.1.0', camera_context=context)
         return result
