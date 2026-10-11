@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +15,7 @@ from .config import ConfigStore
 from .engine import Engine
 from .flashes import FlashIndex
 from .motion import MotionIndex
+from .pairing import Pairing
 from .store import Store
 from .trains import TrainIndex
 from .uploads import Uploader
@@ -27,7 +29,8 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     directory.chmod(0o700)
     config, store = ConfigStore(directory), Store(directory)
     engine = Engine(config, store, model or Path(os.environ.get("RAILWATCHER_MODEL", "models/train.onnx")))
-    uploader = Uploader(config, store)
+    pairing = Pairing(directory)
+    uploader = Uploader(config, store, pairing, engine.passages)
     motion = MotionIndex(engine.footage, config)
     flashes = FlashIndex(engine.footage, config)
     trains = TrainIndex(engine.footage, config, engine.model_path)
@@ -38,6 +41,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             engine.start()
             motion.start()
             trains.start()
+            pairing.start()
             uploader.start()
         yield
         if workers:
@@ -45,6 +49,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             await asyncio.to_thread(motion.close)
             await asyncio.to_thread(engine.close)
             await asyncio.to_thread(uploader.close)
+            await asyncio.to_thread(pairing.close)
 
     app = FastAPI(title="Railwatcher", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.config, app.state.store, app.state.engine = config, store, engine
@@ -65,6 +70,31 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/api/") else "no-cache"
         return response
+
+    @app.get("/api/device")
+    def device_status():
+        return pairing.public()
+
+    @app.get("/api/device/qr")
+    def pairing_qr():
+        import io
+
+        import qrcode
+        import qrcode.image.svg
+        status = pairing.public()
+        if not status.get("approval_url"):
+            raise HTTPException(404, "No active pairing session")
+        result = io.BytesIO()
+        qrcode.make(status["approval_url"], image_factory=qrcode.image.svg.SvgPathImage).save(result)
+        return Response(result.getvalue(), media_type="image/svg+xml")
+
+    @app.post("/api/device/pair")
+    def pair_device():
+        try:
+            pairing.begin(config.get())
+        except (httpx.HTTPError, OSError, ValueError, KeyError):
+            raise HTTPException(503, "Could not start pairing; check connection") from None
+        return pairing.public()
 
     @app.get("/api/config")
     def get_config():
@@ -103,6 +133,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             **engine.status(),
             "uploads": uploader.status,
             "sightings": store.summary(),
+            "passages": engine.passages.summary(),
             "enabled": config.get().enabled,
         }
 
@@ -117,7 +148,12 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     def footage_buffer(movement: Literal["all", "motion", "quiet", "pending", "error"] = "all",
                        activity: Literal["movement", "red_flashes", "trains"] = "movement"):
         index = trains if activity == "trains" else flashes if activity == "red_flashes" else motion
-        return {**index.annotate(engine.footage.list(), movement), "activity": activity}
+        from .archive_passages import group_passages
+        all_rows = index.annotate(engine.footage.list(), "all")
+        selected = [row for row in all_rows["segments"] if movement == "all" or row["motion"]["state"] == movement]
+        return {**all_rows, "segments": selected, "activity": activity,
+                "archive_passages": group_passages(all_rows["segments"]) if activity == "trains" else [],
+                "playback_segments": all_rows["segments"]}
 
     @app.get("/api/buffer/{filename}")
     def footage_segment(filename: str):
@@ -166,11 +202,21 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             raise HTTPException(404, "Video is not available locally")
         return FileResponse(store.clips / row["filename"], media_type="video/mp4")
 
+    @app.post("/api/sightings/{event_id}/submit")
+    def submit_historical(event_id: str):
+        try:
+            identity = engine.passages.submit_history(event_id, config.get(), engine.model_version)
+        except ValueError:
+            raise HTTPException(409, "Historical footage unavailable") from None
+        return {"event_id": identity, "status": "pending"}
+
     @app.post("/api/sightings/{event_id}/retry")
     def retry(event_id: str):
         row = store.get(event_id)
         if not row or row["status"] != "pending":
             raise HTTPException(409, "Only queued uploads can be retried")
+        if not engine.passages.retry_for_part(event_id):
+            raise HTTPException(409, "Submit this historical event before retrying delivery")
         store.update(event_id, next_attempt=0, error=None)
         return {"ok": True}
 

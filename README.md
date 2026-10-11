@@ -11,7 +11,7 @@ A Raspberry Pi lookout for trains.fyi. Connect a USB webcam or local RTSP camera
 - SQLite sightings history, local video playback, persisted upload retries and bounded storage. Uploaded clips are pruned oldest first; pending clips are never automatically discarded. Capture pauses when pending clips consume the storage budget.
 - systemd installer, service restart recovery, camera reconnection, and local dashboard with real device/queue status.
 
-**The TrainsFYI camera API does not exist yet.** Leave the endpoint empty to record locally. API keys can be saved now but cannot yet be verified against TrainsFYI. The upload adapter is implemented against the explicit [proposed contract](docs/upload-contract.md), not an invented production endpoint.
+**Account-linked camera pilot:** choose Connect to TrainsFYI in setup or Settings, then approve the camera through your TrainsFYI account in a browser. The pilot is invite-only. Unpaired cameras record locally. Confirmed passages upload privately through the [device protocol](docs/device-protocol.md); cloud processing and models remain in the private backend.
 
 ## Install on a Raspberry Pi
 
@@ -46,7 +46,7 @@ For one camera, start with:
    The installer adds FFmpeg and Python dependencies, creates the `railwatcher` system service, and prints the local URL. It copies `models/train.onnx` and its accompanying `train.json` if present. Installation needs an internet connection to download system and Python packages.
 5. From a phone or computer on the same home network, open `http://railwatcher.local:8787` (or the URL printed by the installer). On first visit, choose the camera, set its position and direction on the map, and complete setup. The live dashboard opens on later visits; use **Settings** to change the camera or other configuration.
 
-The page is available to anyone on the local network; no login is required. Use it on a trusted network and do not port-forward the service to the public internet. Camera credentials and API keys are withheld from the configuration response and stored in the restricted data directory.
+The page is available to anyone on the local network; no login is required. Use it on a trusted network and do not port-forward the service to the public internet. Camera connection credentials, device credentials and pairing secrets are withheld from the configuration response and stored in the restricted data directory.
 
 The installer installs OS/Python dependencies, a dedicated `railwatcher` service user in the video group, and a boot-enabled systemd service. It can be rerun to update the application without replacing settings/history. No cloud services are deployed.
 

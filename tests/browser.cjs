@@ -47,7 +47,7 @@ async function main() {
     await page.locator('#bearing').fill('135');
     await page.screenshot({path:'artifacts/location-desktop.png',fullPage:true});
     await page.getByRole('button',{name:/Continue/}).click();
-    await page.getByLabel('TrainsFYI API key').fill('test-only-key');
+    await page.getByRole('button',{name:'Connect to TrainsFYI'}).waitFor();
     await page.getByRole('button',{name:/Continue/}).click();
     await page.getByText(/Train model is not installed/).waitFor();
     await page.getByRole('button',{name:/Start watching/}).click();
@@ -108,7 +108,7 @@ async function main() {
     await page.unroute('**/api/buffer?*');
     const saved = await page.evaluate(async()=> (await fetch('/api/config')).json());
     assert.equal(saved.bearing,135); assert.equal(saved.latitude,43.6426);
-    assert.equal(saved.enabled,false); assert.equal(saved.has_api_key,true);
+    assert.equal(saved.enabled,false); assert.equal(saved.has_api_key,false);
     assert.equal(saved.source,null); assert.ok(!JSON.stringify(saved).includes('private-camera-password'));
     await page.goto(base);
     await page.getByRole('heading',{name:'West junction'}).waitFor();

@@ -15,6 +15,7 @@ import numpy as np
 
 from .detection import TrainDetector, Trigger
 from .footage import FootageBuffer
+from .passages import Passages
 
 log = logging.getLogger(__name__)
 WIDTH, HEIGHT, FPS = 960, 540, 10
@@ -73,6 +74,7 @@ class Recording:
         self.frames = queue.Queue(maxsize=FPS * 40)
         self.done = threading.Event()
         self.error = None
+        self.cutoff = False
         self.process = subprocess.Popen(
             [
                 "ffmpeg",
@@ -116,6 +118,7 @@ class Recording:
             return
         # Close a valid shorter clip if the encoder exceeds its reserved space.
         if self.path.exists() and self.path.stat().st_size >= self.byte_limit:
+            self.cutoff = True
             self.done.set()
             return
         self.last_frame = stamp
@@ -180,6 +183,8 @@ class Engine:
         self.frame_time = 0.0
         self.buffer = collections.deque()
         self.recording = None
+        self.passages = Passages(store)
+        self.model_version = __import__("hashlib").sha256(model.read_bytes()).hexdigest() if model.is_file() else "unavailable"
         self.writers = []
         self.process = None
         self.camera_status = "idle"
@@ -201,7 +206,7 @@ class Engine:
         for thread in self.threads:
             thread.join(timeout=20)
         with self.lock:
-            self._finish()
+            self._finish("service_shutdown")
         for writer in self.writers:
             writer.thread.join(timeout=40)
 
@@ -225,10 +230,12 @@ class Engine:
                 "model_available": self.model_path.is_file(),
             }
 
-    def _finish(self, error=None):
+    def _finish(self, error=None, boundary=False):
         if self.recording:
-            self.recording.finish(error)
+            self.recording.finish()
             self.recording = None
+        if not boundary:
+            self.passages.end(error)
 
     def _capture(self):
         while not self.stop.is_set():
@@ -280,7 +287,7 @@ class Engine:
                         self.process.kill()
                     self.process.wait()
                 with self.lock:
-                    self._finish()
+                    self._finish("camera_disconnected")
                     self.buffer.clear()
                     self.frame = self.jpeg = None
             self.stop.wait(5)
@@ -291,7 +298,7 @@ class Engine:
             settings = self.config.get()
             if not settings.enabled:
                 with self.lock:
-                    self._finish()
+                    self._finish("capture_disabled")
                 trigger = None
                 self.detector_status = "paused" if settings.setup_complete else "awaiting setup"
                 self.stop.wait(0.5)
@@ -305,7 +312,7 @@ class Engine:
                     detector = TrainDetector(self.model_path)
                 if trigger is None or previous != settings:
                     with self.lock:
-                        self._finish()
+                        self._finish("configuration_changed")
                     trigger = Trigger(settings.confirmations, settings.post_roll)
                     previous = settings
                 with self.lock:
@@ -314,19 +321,28 @@ class Engine:
                     self.detector_status = "waiting for camera"
                     self.stop.wait(0.5)
                     continue
+                if trigger.active and not self.passages.active:
+                    trigger = Trigger(settings.confirmations, settings.post_roll)
                 last_frame = stamp
                 score = detector.confidence(frame, settings.detection_mask)
                 self.last_score = score
-                action = trigger.feed(score >= settings.confidence, stamp)
                 self.detector_status = "watching"
                 with self.lock:
+                    if self.frame is None or self.camera_status != "connected" or self.config.get() != settings:
+                        continue
+                    action = trigger.feed(score >= settings.confidence, stamp)
+                    if action == "start":
+                        self.passages.start(settings, trigger.first_positive, self.model_version)
+                    self.passages.observation(stamp, score, getattr(detector, "last_detections", getattr(detector, "last_boxes", [])), score >= settings.confidence)
                     self.writers = [writer for writer in self.writers if writer.thread.is_alive()]
                     if self.recording and (
                         action == "end"
                         or self.recording.done.is_set()
                         or stamp - self.recording.started >= settings.max_clip_seconds
                     ):
-                        self._finish()
+                        if self.recording.cutoff and self.passages.active:
+                            self.passages.mutate(self.passages.active, lambda value: value.update(complete=False, incomplete_reason="forced_storage_cutoff"))
+                        self._finish(boundary=action != "end")
                     if not self.recording and trigger.active:
                         # Reserve a conservative 1 MB/s for this recording, including pre-roll.
                         reserve = (settings.max_clip_seconds + settings.pre_roll) * 1_000_000
@@ -346,6 +362,8 @@ class Engine:
                             frames = [(t, jpeg) for t, jpeg in self.buffer if t >= start]
                             if frames:
                                 self.recording = Recording(self.store, settings, frames, score)
+                                if self.passages.active:
+                                    self.passages.add_part(self.passages.active, self.recording.id)
                                 self.writers.append(self.recording)
                                 self.storage_status = None
                     if self.recording:
@@ -354,7 +372,7 @@ class Engine:
                 log.exception("Detection/recording failure")
                 self.detector_status = "detector error — check model and service logs"
                 with self.lock:
-                    self._finish()
+                    self._finish("detector_failure")
                 detector, trigger = None, None
                 self.stop.wait(5)
             self.stop.wait(0.5)

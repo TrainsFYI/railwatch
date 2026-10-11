@@ -1,6 +1,10 @@
+# Legacy upload adapter
+
+The production app uses frontend-approved device enrollment and the [multipart device protocol](device-protocol.md). The adapter below remains for compatibility tests and custom legacy integrations; it is not the account-linked TrainsFYI gateway.
+
 # Proposed camera upload contract (not implemented by TrainsFYI)
 
-Railwatcher deliberately has no default upload endpoint. The user may save an API key without enabling uploads. An explicitly configured HTTPS endpoint and nonempty API key activate the worker. Camera capture works independently.
+The legacy adapter has no default upload endpoint. The user may save an API key without enabling uploads. An explicitly configured HTTPS endpoint and nonempty API key activate the worker. Camera capture works independently.
 
 The client sends a multipart POST to the configured URL:
 

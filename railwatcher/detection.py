@@ -46,7 +46,9 @@ class TrainDetector:
             raise ValueError("YOLO output classes do not match the model manifest")
         detections = output[0]
         scores = detections[4 + getattr(self, "train_class", 0)]
+        inside = np.ones(scores.shape, dtype=bool)
         if not detection_mask:
+            self._remember_boxes(detections, scores, inside, x, y, scale, offset_x, offset_y, width, height)
             return float(np.max(scores))
 
         # The model sees the padded 640x640 image. Convert detection centers back
@@ -64,7 +66,26 @@ class TrainDetector:
             inside ^= crosses & (centers_x < boundary_x)
             previous = current
         inside &= (centers_x >= 0) & (centers_x <= 1) & (centers_y >= 0) & (centers_y <= 1)
+        self._remember_boxes(detections, scores, inside, x, y, scale, offset_x, offset_y, width, height)
         return float(np.max(scores[inside])) if np.any(inside) else 0.0
+
+
+    def _remember_boxes(self, detections, scores, inside, x, y, scale, offset_x, offset_y, width, height):
+        self.last_boxes = []
+        self.last_detections = []
+        candidates = np.flatnonzero(inside & (scores >= .1))
+        for index in sorted(candidates, key=lambda i: float(scores[i]), reverse=True)[:20]:
+            cx, cy, bw, bh = detections[:4, index]
+            box = [((cx - bw/2 - x)/scale + offset_x)/width,
+                   ((cy - bh/2 - y)/scale + offset_y)/height,
+                   ((cx + bw/2 - x)/scale + offset_x)/width,
+                   ((cy + bh/2 - y)/scale + offset_y)/height]
+            box = [float(np.clip(value, 0, 1)) for value in box]
+            if box[0] < box[2] and box[1] < box[3]:
+                if any(_box_iou(box, previous) > .6 for previous in self.last_boxes):
+                    continue
+                self.last_boxes.append(box)
+                self.last_detections.append({'bbox': box, 'confidence': float(scores[index])})
 
 
 @dataclass
@@ -96,3 +117,9 @@ class Trigger:
             self.recent.clear()
             return "end"
         return None
+
+
+def _box_iou(left, right):
+    intersection = max(0, min(left[2], right[2])-max(left[0], right[0])) * max(0, min(left[3], right[3])-max(left[1], right[1]))
+    union = (left[2]-left[0])*(left[3]-left[1]) + (right[2]-right[0])*(right[3]-right[1]) - intersection
+    return intersection/union if union > 0 else 0
