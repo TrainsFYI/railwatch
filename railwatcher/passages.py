@@ -24,13 +24,25 @@ class Passages:
             db.execute("UPDATE passages SET status='pending' WHERE status='uploading'")
         self.active = None
 
-    def start(self, settings, stamp, model_version):
+    def context(self, settings, model_version, source='capture_snapshot', model_identity=None):
+        if len(model_version) != 64 or any(c not in '0123456789abcdef' for c in model_version):
+            return None  # Legacy/imported model identity remains v2.0.
+        path = self.store.directory / 'models' / 'train.json'
+        manifest = json.loads(path.read_text()) if path.exists() else {}
+        revision = hashlib.sha256(json.dumps(settings.model_dump(exclude={"source", "api_key", "upload_url"}), sort_keys=True).encode()).hexdigest()
+        return {'detection_polygon': [list(point) for point in settings.detection_mask],
+                'configuration_revision': revision,
+                'model_identity': model_identity or {'name': manifest.get('architecture', 'device-installed'), 'sha256': model_version,
+                                   'train_class_id': manifest.get('train_class_id', 0), 'input_size': manifest.get('input_size', 640)},
+                'configuration_source': source, 'parent_event_id': None, 'training_intervals': []}
+
+    def start(self, settings, stamp, model_version, model_identity=None):
         identity = str(uuid.uuid4())
         metadata = {'queued_at': time.time(), 'detected_started': stamp, 'detected_ended': stamp, 'complete': True,
                     'incomplete_reason': None, 'parts': [], 'observations': [],
                     'model_version': model_version,
                     'configuration_revision': hashlib.sha256(json.dumps(settings.model_dump(exclude={"source", "api_key", "upload_url"}), sort_keys=True).encode()).hexdigest(),
-                    'origin': 'confirmed_live'}
+                    'origin': 'confirmed_live', 'camera_context': self.context(settings, model_version, model_identity=model_identity)}
         with self.store.connect() as db:
             db.execute("INSERT INTO passages(id,metadata,status) VALUES(?,?,'recording')", (identity, json.dumps(metadata)))
         self.active = identity
@@ -75,7 +87,7 @@ class Passages:
                     'complete': False, 'incomplete_reason': 'historical_interval_not_confirmed',
                     'parts': [part_id], 'observations': [], 'model_version': model_version,
                     'configuration_revision': hashlib.sha256(json.dumps(settings.model_dump(exclude={"source", "api_key", "upload_url"}), sort_keys=True).encode()).hexdigest(),
-                    'origin': 'owner_submitted_archive'}
+                    'origin': 'owner_submitted_archive', 'camera_context': self.context(settings, model_version, 'backfill_current_settings')}
         with self.store.connect() as db:
             existing = db.execute('SELECT id,metadata FROM passages').fetchall()
             for row in existing:
@@ -147,7 +159,7 @@ class Passages:
             videos.append({'index': index, 'started_at': utc(part['started']), 'ended_at': utc(part['ended']),
                            'video': {'uri': 'local:' + path.name, 'sha256': sha, 'size_bytes': path.stat().st_size,
                                      'mime_type': 'video/mp4', 'duration_seconds': part['ended'] - part['started']}})
-        return {'schema_version': '2.0.0', 'event_id': row['id'], 'created_at': utc(end),
+        result = {'schema_version': '2.0.0', 'event_id': row['id'], 'created_at': utc(end),
                 'observed_at': utc(passage['detected_started']),
                 'source': {'source_type': 'edge_camera', 'source_id': camera_id, 'camera_id': camera_id},
                 'capture': {'kind': 'completed_passage' if passage['complete'] else 'observation',
@@ -161,3 +173,15 @@ class Passages:
                 'passage': {'detected_started_at': utc(max(start, passage['detected_started'])),
                             'detected_ended_at': utc(min(end, passage['detected_ended'])),
                             **{key: passage[key] for key in ['complete', 'incomplete_reason', 'model_version', 'configuration_revision', 'origin']}}}
+
+        context = passage.get('camera_context')
+        if context is not None:
+            context = json.loads(json.dumps(context))
+            negative_end = max(0., min(end, passage['detected_started']) - start)
+            context['training_intervals'] = ([{'start_seconds': 0., 'end_seconds': negative_end,
+                                               'label': 'unreviewed_pre_detection'}] if negative_end > 0 else [])
+            if end-start > negative_end:
+                context['training_intervals'].append({'start_seconds': negative_end, 'end_seconds': end-start,
+                                                      'label': 'unreviewed_train_candidate'})
+            result.update(schema_version='2.1.0', camera_context=context)
+        return result

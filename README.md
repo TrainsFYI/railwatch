@@ -141,3 +141,9 @@ In Camera settings, choose **Add landmark**, enter a label, and drag a box on th
 Model export supports both a single-class checkpoint and standard COCO YOLOv8 checkpoints. The accompanying `train.json` identifies the train class (COCO class 6), class count, provenance hashes and `focus_on_area`. With area focus enabled, inference crops to the saved area plus surrounding context before letterboxing, then maps detection centres back to the original image for polygon filtering. Keep the JSON alongside its ONNX model; multi-class models without the correct manifest are rejected. Legacy single-class models remain supported without a manifest.
 
 The server-261 VIA passage on 2026-10-10 exposed poor recall in the custom YOLOv8n checkpoint. YOLOv8m with track-area focus recognises the recorded passage at the existing 0.55 confidence threshold. This is a regression example, not a guarantee of recall across all trains, lighting, cameras or weather. Red-flash background indexing is paused; saved landmarks remain available.
+
+Account-linked camera uploads use the public v2.1 camera context contract. New
+installations retain up to 120 seconds before local confirmation. Those ranges
+are candidate negative training context requiring review, not automatic ground
+truth labels. Captured polygons, model hashes and configuration revisions travel
+with the clip. Existing pending v2.0 uploads retain their original retry identity.

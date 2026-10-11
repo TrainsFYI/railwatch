@@ -86,3 +86,23 @@ def test_quota_warning_remains_visible_and_retry_cannot_close_live_passage(tmp_p
     assert passages.delivery_status().startswith('Daily upload quota')
     assert passages.retry_for_part('first')
     assert passages.pending()['id'] == identity
+
+
+def test_capture_context_preserves_roi_model_and_unreviewed_pre_detection(tmp_path):
+    store = Store(tmp_path)
+    passages = Passages(store)
+    settings = Settings(detection_mask=[(.2, .3), (.8, .3), (.8, .7), (.2, .7)])
+    model = {'name': 'yolov8m', 'sha256': 'a'*64, 'train_class_id': 6, 'input_size': 640}
+    identity = passages.start(settings, 120, 'a'*64, model)
+    part(store, 'context-first', 0, 150)
+    passages.add_part(identity, 'context-first')
+    passages.end()
+    contract = passages.contract(passages.pending(), 'camera-id')
+    assert contract['schema_version'] == '2.1.0'
+    context = contract['camera_context']
+    assert context['model_identity'] == model
+    assert context['detection_polygon'][0] == [.2, .3]
+    assert context['configuration_source'] == 'capture_snapshot'
+    assert context['training_intervals'][0] == {'start_seconds': 0, 'end_seconds': 120,
+                                               'label': 'unreviewed_pre_detection'}
+    assert settings.pre_roll == 120

@@ -270,7 +270,7 @@ class Engine:
                         self.camera_status = "connected"
                         self.buffer.append((stamp, jpeg))
                         while self.buffer and (
-                            stamp - self.buffer[0][0] > current.pre_roll + 10 or len(self.buffer) > FPS * 45
+                            stamp - self.buffer[0][0] > current.pre_roll + 10 or len(self.buffer) > FPS * (current.pre_roll + 10)
                         ):
                             self.buffer.popleft()
                         if self.recording:
@@ -332,7 +332,9 @@ class Engine:
                         continue
                     action = trigger.feed(score >= settings.confidence, stamp)
                     if action == "start":
-                        self.passages.start(settings, trigger.first_positive, self.model_version)
+                        self.passages.start(settings, trigger.first_positive, self.model_version,
+                                            {'name': 'device-installed', 'sha256': self.model_version,
+                                             'train_class_id': getattr(detector, 'train_class', 0), 'input_size': 640})
                     self.passages.observation(stamp, score, getattr(detector, "last_detections", getattr(detector, "last_boxes", [])), score >= settings.confidence)
                     self.writers = [writer for writer in self.writers if writer.thread.is_alive()]
                     if self.recording and (

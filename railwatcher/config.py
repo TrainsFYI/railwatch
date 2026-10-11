@@ -43,7 +43,7 @@ class Settings(BaseModel):
     detection_mask: list[tuple[float, float]] = Field(default_factory=list, max_length=32)
     landmarks: list[Landmark] = Field(default_factory=list, max_length=32)
     confirmations: int = Field(default=3, ge=1, le=10)
-    pre_roll: int = Field(default=12, ge=3, le=30)
+    pre_roll: int = Field(default=120, ge=3, le=120)
     post_roll: int = Field(default=15, ge=3, le=60)
     max_clip_seconds: int = Field(default=300, ge=30, le=900)
     storage_gb: float = Field(default=8, ge=1, le=1000)
