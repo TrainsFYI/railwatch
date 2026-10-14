@@ -146,7 +146,7 @@ class ConfigStore:
             pose_fields = ("source", "source_type", "latitude", "longitude", "bearing", "field_of_view")
             if any(key in patch and patch[key] != current[key] for key in pose_fields):
                 patch = {**patch, "railway_calibration": None}
-            elif patch.get("railway_calibration") is not None:
+            elif isinstance(patch.get("railway_calibration"), dict):
                 patch = {**patch, "railway_calibration": {**patch["railway_calibration"], "revision": uuid4().hex}}
             current.update(patch)
             value = Settings.model_validate(current)

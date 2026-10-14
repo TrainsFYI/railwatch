@@ -40,3 +40,10 @@ def test_passage_freezes_calibration_at_capture_time(tmp_path):
     store.update('part',ended=30,filename=path.name,status='pending',bytes=5)
     passages.add_part(identity,'part');passages.end()
     assert passages.contract(passages.pending(),'camera')['camera']['calibration_revision']=='new'
+
+
+def test_malformed_calibration_does_not_replace_config(tmp_path):
+    store=ConfigStore(tmp_path)
+    for value in ['invalid', [], 12]:
+        with pytest.raises(ValidationError):store.update({'railway_calibration':value})
+    assert store.get().railway_calibration is None
