@@ -83,3 +83,24 @@ retryable service failure. These responses must never silently discard footage.
 
 The original strict single-video v1 ingest contract remains supported for other
 producers. It is an internal service contract, not a public device credential API.
+
+### Railway point matching
+
+Setup → Location and Camera settings → Match railway points collect two pairs:
+a normalized `[x, y]` position in the native camera image and the latitude /
+longitude of the same fixed point at rail level. Choose points along the same
+straight rail; an optional third pair supports later perspective calibration.
+Image coordinates refer to the full native frame, without display letterboxing.
+
+The local `railway_calibration` setting has a server-generated local `revision`
+and `points` containing `image`, `latitude`, and `longitude`. A saved edit gets a
+new revision. Changing the camera source, location, bearing, or field of view
+clears it; use “Camera moved / start again” after moving or zooming the camera.
+New live passages freeze the current revision at capture time, so queued clips
+cannot inherit a later pose. Historical submissions do not claim current pose.
+
+Heartbeat updates include `railway_calibration_proposal` (the setting or null).
+The private service derives a direction candidate for staff review. User points
+never grant staff approval or enable map publication. Speed remains unknown
+until geometry and tracking have been independently verified; two point pairs
+alone do not determine perspective-correct speed.
