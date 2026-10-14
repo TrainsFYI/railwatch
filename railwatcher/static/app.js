@@ -175,6 +175,14 @@ function startPreview() {
   bindFullscreen();
   const image = $('#preview-image');
   if (!image) return;
+  image.onload=()=>{
+    if(page==='calibration' && image.naturalWidth && !document.fullscreenElement){
+      const viewer=image.closest('.preview');
+      viewer.style.flex='none';viewer.style.minHeight='0';
+      viewer.style.aspectRatio=`${image.naturalWidth} / ${image.naturalHeight}`;
+    }
+    drawMask();
+  };
   const tick = async () => {
     if (!image.isConnected) return;
     try {

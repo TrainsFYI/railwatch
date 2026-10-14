@@ -123,7 +123,10 @@ async function main() {
     await page.getByRole('heading',{name:'Match railway points',exact:true}).waitFor();
     const image=page.locator('#mask-canvas');
     // A synthetic visible preview makes the image coordinate contract testable.
-    await page.evaluate(()=>{const img=document.querySelector('#preview-image');img.hidden=false;img.style.height='180px';img.style.width='100%';});
+    await page.route('**/api/preview?*',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="gray"/></svg>'}));
+    await page.waitForFunction(()=>document.querySelector('#preview-image').naturalWidth===400);
+    const aligned=await image.boundingBox();
+    assert.ok(Math.abs(aligned.width/aligned.height-4/3)<.03,'Calibration overlay matches native image aspect ratio');
     for(const [imageX,mapX] of [[.25,.3],[.75,.7]]) {
       const box=await image.boundingBox();
       await page.mouse.click(box.x+box.width*imageX,box.y+box.height*.4);
@@ -133,6 +136,7 @@ async function main() {
     await page.getByText('2 matched pairs',{exact:true}).waitFor();
     await page.getByRole('button',{name:'Save matched points'}).click();
     await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();
+    await page.unroute('**/api/preview?*');
     const calibration=await page.evaluate(async()=> (await fetch('/api/config')).json());
     assert.equal(calibration.railway_calibration.points.length,2);
     assert.ok(calibration.railway_calibration.revision!=='new');
