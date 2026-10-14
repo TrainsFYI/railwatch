@@ -347,3 +347,5 @@ dialog video { width: 100%; max-height: 70vh; margin-top: 14px; }
 
 .rail-map-pin { display: grid; place-items: center; width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; background: #1e40af; color: white; font: bold 15px sans-serif; box-shadow: 0 2px 6px #0005; }
 body:has(#calibration-workspace) #toast { bottom: 150px; pointer-events: none; }
+
+.rail-save-bar .error-box { flex-basis: 100%; margin: 0; }

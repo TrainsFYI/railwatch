@@ -468,10 +468,10 @@ function calibrationPage(returnTo = settingsPage) {
   let busy=false, selection='image', markers=[];
   $('#app').innerHTML=`<div id="calibration-workspace"><div class="intro"><div><h1>Match railway points</h1><p>Match the same fixed spot on the rail in the camera image and map. Save each point, then repeat farther along the same straight rail.</p></div><button class="secondary" id="calibration-back">Back to settings</button></div>
     <section class="card rail-progress"><div id="rail-saved" aria-live="polite"></div><button class="secondary" id="rail-third">Add point C (optional)</button><button class="text-button" id="rail-reset">Camera moved / clear all points</button></section>
-    <section class="card rail-guidance"><h2 id="rail-instruction"></h2><div class="rail-steps"><button class="secondary" id="rail-select-image">1. Choose camera point</button><button class="secondary" id="rail-select-map">2. Choose matching map point</button></div><p id="rail-feedback" role="status"></p><div id="error" class="error-box" hidden></div></section>
+    <section class="card rail-guidance"><h2 id="rail-instruction"></h2><div class="rail-steps"><button class="secondary" id="rail-select-image">1. Choose camera point</button><button class="secondary" id="rail-select-map">2. Choose matching map point</button></div><p id="rail-feedback" role="status"></p></section>
     <div class="settings-grid">${previewHTML('calibration',false)}<section class="card"><h3>Matching map location</h3><div id="map" style="height:420px"></div><p>Click the same spot on the same rail. You can drag the selected map pin to adjust it.</p></section></div>
     <p>Two saved pairs establish the rail axis. A third pair can support future speed calibration. Recalibrate after moving or zooming the camera.</p>
-    <div class="rail-save-bar"><span id="rail-summary" aria-live="polite"></span><button id="rail-save-point">Save point A</button><button id="rail-save" class="secondary">Apply calibration</button></div></div>`;
+    <div class="rail-save-bar"><div id="error" class="error-box" hidden></div><span id="rail-summary" aria-live="polite"></span><button id="rail-save-point">Save point A</button><button id="rail-save" class="secondary">Apply calibration</button></div></div>`;
   $('#calibration-back').onclick=returnTo;
   map=L.map('map').setView([config.latitude??43.65,config.longitude??-79.38],18);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery © Esri',maxZoom:20}).addTo(map);

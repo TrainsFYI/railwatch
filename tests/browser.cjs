@@ -154,6 +154,8 @@ async function main() {
     });
     await page.getByRole('button',{name:'Save point B',exact:true}).click();
     await page.getByText('Save failed. Try again.',{exact:true}).waitFor();
+    const errorBox=await page.locator('#error').boundingBox();
+    assert.ok(errorBox.y>=0&&errorBox.y+errorBox.height<=844,'Save failure stays visible next to retry control');
     assert.equal(await page.getByRole('button',{name:'Save point B',exact:true}).isEnabled(),true,'Failed save keeps the selected pair for retry');
     await page.getByRole('button',{name:'Save point B',exact:true}).click();
     await page.getByText('Point B · Saved',{exact:true}).waitFor();
