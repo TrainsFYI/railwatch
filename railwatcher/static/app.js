@@ -95,6 +95,14 @@ function drawMask() {
     context.fillStyle = '#142033'; context.fillRect(x, Math.max(0,y-19), width, 19);
     context.fillStyle = '#fff'; context.fillText(landmark.label,x+4,Math.max(14,y-5),Math.max(1,width-8));
   }
+  if (page === 'calibration') {
+    railPoints.forEach((point, index) => {
+      if (!point.image) return;
+      const [x,y] = point.image.map((value,i)=>value*(i?rect.height:rect.width));
+      context.fillStyle='#ffcf40'; context.beginPath(); context.arc(x,y,7,0,Math.PI*2); context.fill();
+      context.font='bold 16px sans-serif'; context.fillText('ABC'[index],x+10,y-8);
+    });
+  }
   const count = $('#mask-count');
   if (count) count.textContent = detectionMask.length >= 3 ? `${detectionMask.length} points · active` : detectionMask.length ? `${detectionMask.length} of 3 points` : 'Full frame';
   const undo = $('#mask-undo');
@@ -224,8 +232,9 @@ async function saveCamera() {
 }
 function locationStep() {
   locationChosen = config.latitude !== null && config.longitude !== null;
-  $('#step-content').innerHTML = `<div class="setup-grid"><section class="card"><h2>Camera location</h2><p>Place the marker on the map or enter coordinates. The overlay shows mapped railway lines.</p><div class="inline-inputs"><div><label for="latitude">Latitude</label><input id="latitude" type="number" step="any" min="-85" max="85" placeholder="43.6426" value="${config.latitude??''}"></div><div><label for="longitude">Longitude</label><input id="longitude" type="number" step="any" min="-180" max="180" placeholder="-79.3871" value="${config.longitude??''}"></div></div><div class="map-controls"><button class="secondary" id="go-coordinates">Show coordinates</button><button class="secondary" id="locate">Use my location</button></div><label class="bearing-label" for="bearing"><span>Camera direction</span><span id="bearing-value">${config.bearing}° · ${compass(config.bearing)}</span></label><input id="bearing" type="range" min="0" max="359" value="${config.bearing}"><p class="hint">0° is north, 90° is east. Point the cone where your camera looks.</p><label class="bearing-label" for="fov"><span>Field of view</span><span id="fov-value">${config.field_of_view}°</span></label><input id="fov" type="range" min="10" max="160" value="${config.field_of_view}"><div class="note">Satellite imagery and rail overlays need an internet connection. You can also enter coordinates manually.</div></section><section class="card"><div id="map"></div><p class="map-note" id="map-message">Click the map to place the camera. Drag to adjust.</p></section></div>`;
+  $('#step-content').innerHTML = `<div class="setup-grid"><section class="card"><h2>Camera location</h2><button class="secondary" id="setup-rail-calibration">Match railway points (optional)</button><p>Place the marker on the map or enter coordinates. The overlay shows mapped railway lines.</p><div class="inline-inputs"><div><label for="latitude">Latitude</label><input id="latitude" type="number" step="any" min="-85" max="85" placeholder="43.6426" value="${config.latitude??''}"></div><div><label for="longitude">Longitude</label><input id="longitude" type="number" step="any" min="-180" max="180" placeholder="-79.3871" value="${config.longitude??''}"></div></div><div class="map-controls"><button class="secondary" id="go-coordinates">Show coordinates</button><button class="secondary" id="locate">Use my location</button></div><label class="bearing-label" for="bearing"><span>Camera direction</span><span id="bearing-value">${config.bearing}° · ${compass(config.bearing)}</span></label><input id="bearing" type="range" min="0" max="359" value="${config.bearing}"><p class="hint">0° is north, 90° is east. Point the cone where your camera looks.</p><label class="bearing-label" for="fov"><span>Field of view</span><span id="fov-value">${config.field_of_view}°</span></label><input id="fov" type="range" min="10" max="160" value="${config.field_of_view}"><div class="note">Satellite imagery and rail overlays need an internet connection. You can also enter coordinates manually.</div></section><section class="card"><div id="map"></div><p class="map-note" id="map-message">Click the map to place the camera. Drag to adjust.</p></section></div>`;
   mountMap(); bindLocationControls();
+  $('#setup-rail-calibration').onclick=async()=>{try{await saveStep();calibrationPage(()=>setup(1));}catch(e){error(e.message);}};
 }
 function mountMap() {
   if(window.L) {
@@ -381,13 +390,14 @@ function settingsPage() {
   selectedLandmark=landmarks[0]?.id || ''; landmarkDrag=null;
   $('#app').innerHTML=`<div class="intro"><div><h1>Settings</h1><p>Camera, location, detection and upload configuration.</p></div><button class="secondary" id="back-dashboard">Back to dashboard</button></div><form id="settings-form"><div class="settings-grid">
     <section class="card"><h2>Camera</h2><label for="settings-name">Camera name</label><input id="settings-name" maxlength="80" required value="${escapeHTML(config.name)}"><label for="settings-source-type">Video source</label><select id="settings-source-type"><option value="usb" ${sourceType==='usb'?'selected':''}>USB camera</option><option value="rtsp" ${sourceType==='rtsp'?'selected':''}>RTSP network stream</option></select><div id="settings-source-field"></div></section>
-    <section class="card"><h2>Location and direction</h2><p>Place the camera on the map. Railway lines are shown over satellite imagery.</p><div class="inline-inputs"><div><label for="latitude">Latitude</label><input id="latitude" type="number" step="any" min="-85" max="85" value="${config.latitude??''}" required></div><div><label for="longitude">Longitude</label><input id="longitude" type="number" step="any" min="-180" max="180" value="${config.longitude??''}" required></div></div><div class="map-controls"><button class="secondary" type="button" id="go-coordinates">Show coordinates</button><button class="secondary" type="button" id="locate">Use my location</button></div><label class="bearing-label" for="bearing"><span>Camera direction</span><span id="bearing-value">${config.bearing}° · ${compass(config.bearing)}</span></label><input id="bearing" type="range" min="0" max="359" value="${config.bearing}"><label class="bearing-label" for="fov"><span>Field of view</span><span id="fov-value">${config.field_of_view}°</span></label><input id="fov" type="range" min="10" max="160" value="${config.field_of_view}"></section>
+    <section class="card"><h2>Location and direction</h2><button type="button" class="secondary" id="rail-calibration">Match railway points</button><p>Place the camera on the map. Railway lines are shown over satellite imagery.</p><div class="inline-inputs"><div><label for="latitude">Latitude</label><input id="latitude" type="number" step="any" min="-85" max="85" value="${config.latitude??''}" required></div><div><label for="longitude">Longitude</label><input id="longitude" type="number" step="any" min="-180" max="180" value="${config.longitude??''}" required></div></div><div class="map-controls"><button class="secondary" type="button" id="go-coordinates">Show coordinates</button><button class="secondary" type="button" id="locate">Use my location</button></div><label class="bearing-label" for="bearing"><span>Camera direction</span><span id="bearing-value">${config.bearing}° · ${compass(config.bearing)}</span></label><input id="bearing" type="range" min="0" max="359" value="${config.bearing}"><label class="bearing-label" for="fov"><span>Field of view</span><span id="fov-value">${config.field_of_view}°</span></label><input id="fov" type="range" min="10" max="160" value="${config.field_of_view}"></section>
     <section class="card settings-map"><div id="map"></div><p class="map-note" id="map-message">Click the map to place the camera. Drag to adjust.</p></section>
-    <section class="card"><h2>Detection and storage</h2><div class="inline-inputs"><div><label for="confidence">Detection confidence</label><input id="confidence" type="number" min="0.1" max="0.99" step="0.05" value="${config.confidence}"></div><div><label for="confirmations">Confirmations within 5 seconds</label><input id="confirmations" type="number" min="1" max="10" step="1" value="${config.confirmations}"></div></div><div class="inline-inputs"><div><label for="pre-roll">Pre-roll (seconds)</label><input id="pre-roll" type="number" min="3" max="30" value="${config.pre_roll}"></div><div><label for="post-roll">Post-roll (seconds)</label><input id="post-roll" type="number" min="3" max="60" value="${config.post_roll}"></div></div><div class="inline-inputs"><div><label for="max-clip">Maximum clip (seconds)</label><input id="max-clip" type="number" min="30" max="900" value="${config.max_clip_seconds}"></div><div><label for="storage">Storage limit (GB)</label><input id="storage" type="number" min="1" max="1000" step="0.25" value="${config.storage_gb}"></div></div></section>
+    <section class="card"><h2>Detection and storage</h2><div class="inline-inputs"><div><label for="confidence">Detection confidence</label><input id="confidence" type="number" min="0.1" max="0.99" step="0.05" value="${config.confidence}"></div><div><label for="confirmations">Confirmations within 5 seconds</label><input id="confirmations" type="number" min="1" max="10" step="1" value="${config.confirmations}"></div></div><div class="inline-inputs"><div><label for="pre-roll">Pre-roll (seconds)</label><input id="pre-roll" type="number" min="3" max="120" value="${config.pre_roll}"></div><div><label for="post-roll">Post-roll (seconds)</label><input id="post-roll" type="number" min="3" max="60" value="${config.post_roll}"></div></div><div class="inline-inputs"><div><label for="max-clip">Maximum clip (seconds)</label><input id="max-clip" type="number" min="30" max="900" value="${config.max_clip_seconds}"></div><div><label for="storage">Storage limit (GB)</label><input id="storage" type="number" min="1" max="1000" step="0.25" value="${config.storage_gb}"></div></div></section>
     <section class="card"><h2>TrainsFYI account</h2><p>Authorize this camera in your browser. Confirmed train passages upload automatically; footage stays private.</p><button type="button" id="pair-device">Connect to TrainsFYI</button><div id="device-pairing" aria-live="polite"></div><div hidden><input id="api-key"><input id="clear-key" type="checkbox"><input id="upload-url" value="${escapeHTML(config.upload_url)}"></div></section>
     <div class="full-width">${previewHTML('settings-mask')}${landmarkEditorHTML()}</div>
   </div><div id="error" class="error-box" hidden></div><div class="actions"><button class="secondary" type="button" id="cancel-settings">Cancel</button><span class="hint">Settings are saved on this device.</span><button id="save-settings">Save settings</button></div></form>`;
   $('#back-dashboard').onclick=dashboard; $('#cancel-settings').onclick=dashboard;
+  $('#rail-calibration').onclick=()=>calibrationPage();
   bindDevicePairing();
   settingsSourceField(); setupMaskEditor(); setupLandmarkEditor(); startPreview(); $('#settings-source-type').onchange=()=>{sourceType=$('#settings-source-type').value;settingsSourceField();};
   mountMap(); bindLocationControls();
@@ -434,4 +444,42 @@ function bindDevicePairing() {
   $('#pair-device').onclick = async () => { try { await api('device/pair', 'POST', {}); await showPairing(); } catch (e) { error(e.message); } };
   showPairing();
   const pairingTimer = setInterval(() => { if (!$('#device-pairing')) clearInterval(pairingTimer); else showPairing(); }, 5000);
+}
+
+
+let railPoints = [];
+function calibrationPage(returnTo = settingsPage) {
+  if(!window.L) return toast('The map could not load. Check your connection and try again.');
+  cleanup(); page='calibration';
+  railPoints = (config.railway_calibration?.points || []).map(point=>({...point,image:[...point.image]}));
+  $('#app').innerHTML=`<div class="intro"><div><h1>Match railway points</h1><p>Choose the same fixed point on a rail in the camera and on the map. Repeat farther along the same straight track.</p></div><button class="secondary" id="calibration-back">Back to settings</button></div><div class="settings-grid">${previewHTML('calibration',false)}<section class="card"><div id="map" style="height:420px"></div><p>Use fixed points at rail level. Keep all points on the same straight section. A third pair helps account for perspective; speed still requires verification.</p></section></div><section class="card"><p id="rail-instruction" aria-live="polite"></p><p id="rail-summary"></p><p>Recalibrate after moving or zooming the camera. These are user-supplied points, pending verification.</p><div class="actions"><button class="secondary" id="rail-reset">Camera moved / start again</button><button class="secondary" id="rail-third">Add third point</button><button id="rail-save">Save matched points</button></div><div id="error" class="error-box" hidden></div></section>`;
+  $('#calibration-back').onclick=returnTo;
+  map=L.map('map').setView([config.latitude??43.65,config.longitude??-79.38],18);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery © Esri',maxZoom:20}).addTo(map);
+  L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',{attribution:'© OpenRailwayMap, © OpenStreetMap contributors',maxZoom:19}).addTo(map);
+  let markers=[];
+  const refresh=()=>{
+    markers.forEach(item=>map.removeLayer(item)); markers=[];
+    railPoints.forEach((point,i)=>{if(point.latitude!==undefined)markers.push(L.marker([point.latitude,point.longitude]).addTo(map).bindTooltip('ABC'[i],{permanent:true}));});
+    const incomplete=railPoints.findIndex(point=>point.latitude===undefined);
+    const complete=railPoints.length>=2 && incomplete===-1;
+    $('#rail-instruction').textContent=incomplete!==-1?`Point ${'ABC'[incomplete]}: click its matching position on the map.`:railPoints.length<2?`Point ${'ABC'[railPoints.length]}: click a fixed point on the rail in the camera image.`: 'Two pairs establish direction. Optionally add a third pair farther along this straight rail.';
+    $('#rail-summary').textContent=`${railPoints.filter(point=>point.latitude!==undefined).length} matched pairs`;
+    $('#rail-save').disabled=!complete;
+    $('#rail-third').disabled=!complete||railPoints.length>=3;
+    drawMask();
+  };
+  $('#mask-canvas').onclick=event=>{
+    if(railPoints.some(point=>point.latitude===undefined)||railPoints.length>=2)return;
+    const rect=event.currentTarget.getBoundingClientRect();
+    railPoints.push({image:[Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))]}); refresh();
+  };
+  let third=false;
+  const imageClick=$('#mask-canvas').onclick;
+  $('#mask-canvas').onclick=event=>{if(third&&railPoints.length===2){const rect=event.currentTarget.getBoundingClientRect();railPoints.push({image:[Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))]});third=false;refresh();}else imageClick(event);};
+  map.on('click',event=>{const point=railPoints.find(point=>point.latitude===undefined);if(!point)return;point.latitude=event.latlng.lat;point.longitude=event.latlng.lng;refresh();});
+  $('#rail-third').onclick=()=>{third=true;$('#rail-instruction').textContent='Point C: click a third fixed point on the same rail in the image.';};
+  $('#rail-reset').onclick=async()=>{try{config=await api('config','PATCH',{railway_calibration:null});railPoints=[];third=false;refresh();}catch(e){error(e.message);}};
+  $('#rail-save').onclick=async()=>{try{config=await api('config','PATCH',{railway_calibration:{revision:'new',points:railPoints}});toast('Railway points saved. Verification is needed before estimating speed.');returnTo();}catch(e){error(e.message);}};
+  startPreview(); refresh(); window.onresize=drawMask;
 }

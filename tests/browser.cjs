@@ -119,6 +119,23 @@ async function main() {
     await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();
     await page.getByLabel('RTSP stream URL').waitFor();
     assert.equal(await page.getByLabel('RTSP stream URL').getAttribute('type'),'text');
+    await page.getByRole('button',{name:'Match railway points',exact:true}).click();
+    await page.getByRole('heading',{name:'Match railway points',exact:true}).waitFor();
+    const image=page.locator('#mask-canvas');
+    // A synthetic visible preview makes the image coordinate contract testable.
+    await page.evaluate(()=>{const img=document.querySelector('#preview-image');img.hidden=false;img.style.height='180px';img.style.width='100%';});
+    for(const [imageX,mapX] of [[.25,.3],[.75,.7]]) {
+      const box=await image.boundingBox();
+      await page.mouse.click(box.x+box.width*imageX,box.y+box.height*.4);
+      const mapBox=await page.locator('#map').boundingBox();
+      await page.mouse.click(mapBox.x+mapBox.width*mapX,mapBox.y+mapBox.height*.5);
+    }
+    await page.getByText('2 matched pairs',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Save matched points'}).click();
+    await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();
+    const calibration=await page.evaluate(async()=> (await fetch('/api/config')).json());
+    assert.equal(calibration.railway_calibration.points.length,2);
+    assert.ok(calibration.railway_calibration.revision!=='new');
     await page.screenshot({path:'artifacts/settings-mobile.png',fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Mobile settings overflow');
     await page.getByRole('button',{name:'Add landmark',exact:true}).click();

@@ -82,7 +82,7 @@ class Uploader:
                             queue_age = queue_summary['oldest_pending_age_seconds']
                             try:
                                 heartbeat = client.post(API + 'heartbeat/', headers={'Authorization': 'Bearer ' + credential['credential']},
-                                                        json={'queue_events': queued, 'oldest_pending_at': time.time() - queue_age if queue_age is not None else None, 'upload_error': self.status if 'retained' in self.status else None})
+                                                        json={'railway_calibration_proposal': settings.railway_calibration.model_dump() if settings.railway_calibration else None, 'queue_events': queued, 'oldest_pending_at': time.time() - queue_age if queue_age is not None else None, 'upload_error': self.status if 'retained' in self.status else None})
                                 heartbeat.raise_for_status()
                             except httpx.HTTPError:
                                 self.status = 'Device heartbeat unavailable'

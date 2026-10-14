@@ -1,4 +1,6 @@
 import os
+import math
+from uuid import uuid4
 import re
 import threading
 from pathlib import Path
@@ -30,6 +32,37 @@ class Landmark(BaseModel):
         return box
 
 
+class RailPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    image: tuple[float, float]
+    latitude: float = Field(ge=-85, le=85)
+    longitude: float = Field(ge=-180, le=180)
+
+    @field_validator("image")
+    @classmethod
+    def image_bounds(cls, point):
+        if any(not 0 <= x <= 1 for x in point):
+            raise ValueError("Rail points must be inside the image")
+        return point
+
+
+class RailCalibration(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    revision: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    points: list[RailPoint] = Field(min_length=2, max_length=3)
+
+    @model_validator(mode="after")
+    def distinct_points(self):
+        for i, point in enumerate(self.points):
+            for other in self.points[:i]:
+                if math.dist(point.image, other.image) < .03:
+                    raise ValueError("Choose image points farther apart")
+                distance = math.hypot((point.longitude-other.longitude)*math.cos(math.radians(point.latitude)), point.latitude-other.latitude)*111195
+                if distance < 5 or distance > 2000:
+                    raise ValueError("Map points must be between 5 and 2000 metres apart")
+        return self
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     name: str = Field(default="My railway camera", min_length=1, max_length=80)
@@ -42,6 +75,7 @@ class Settings(BaseModel):
     confidence: float = Field(default=0.55, ge=0.1, le=0.99)
     detection_mask: list[tuple[float, float]] = Field(default_factory=list, max_length=32)
     landmarks: list[Landmark] = Field(default_factory=list, max_length=32)
+    railway_calibration: RailCalibration | None = None
     confirmations: int = Field(default=3, ge=1, le=10)
     pre_roll: int = Field(default=120, ge=3, le=120)
     post_roll: int = Field(default=15, ge=3, le=60)
@@ -108,6 +142,12 @@ class ConfigStore:
             for key in ("api_key", "source"):
                 if patch.get(key, ...) is None:
                     patch = {k: v for k, v in patch.items() if k != key}
+            # A source or pose change invalidates the old image-to-rail mapping.
+            pose_fields = ("source", "source_type", "latitude", "longitude", "bearing", "field_of_view")
+            if any(key in patch and patch[key] != current[key] for key in pose_fields):
+                patch = {**patch, "railway_calibration": None}
+            elif patch.get("railway_calibration") is not None:
+                patch = {**patch, "railway_calibration": {**patch["railway_calibration"], "revision": uuid4().hex}}
             current.update(patch)
             value = Settings.model_validate(current)
             temporary = self.path.with_suffix(".tmp")
