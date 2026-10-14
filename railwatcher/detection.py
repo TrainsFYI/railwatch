@@ -98,7 +98,9 @@ class Trigger:
     last_positive: float = 0
     recent: deque = field(default_factory=deque)
 
-    def feed(self, positive: bool, now: float) -> str | None:
+    def feed(self, positive: bool, now: float, detections=None, threshold=.55) -> str | None:
+        if detections is not None:
+            positive = self.tracked_positive(detections, now, threshold)
         # Brief confidence dips must not erase a train already seen repeatedly.
         # Expire isolated positives so unrelated events cannot accumulate.
         while self.recent and now - self.recent[0] > 5:
@@ -107,7 +109,9 @@ class Trigger:
             self.recent.append(now)
             self.last_positive = now
         self.positives = len(self.recent)
-        if not self.active and self.positives >= self.confirmations:
+        weak_confirmation = detections is not None and self.recent and getattr(self, "_weak_at", -1e30) >= self.recent[0]
+        if (positive and not self.active and self.positives >= self.confirmations
+                and (not weak_confirmation or now-self.recent[0] >= 4)):
             self.first_positive = self.recent[0]
             self.active = True
             return "start"
@@ -117,6 +121,37 @@ class Trigger:
             self.recent.clear()
             return "end"
         return None
+
+    def tracked_positive(self, detections, now, threshold):
+        """Weak evidence can continue a spatially matched strong train, never seed one."""
+        tracks = getattr(self, "_tracks", [])
+        tracks = [item for item in tracks if 0 <= now-item["last"] <= min(5, self.post_roll)]
+        used = set()
+        positive = False
+        for detection in sorted(detections, key=lambda item: item["confidence"], reverse=True):
+            score, box = detection["confidence"], detection["bbox"]
+            if score < .1:
+                continue
+            matches = [(_box_iou(box, item["box"]), index) for index, item in enumerate(tracks) if index not in used]
+            overlap, index = max(matches, default=(0, None))
+            if overlap < .2:
+                if score < threshold:
+                    continue
+                tracks.append({"box": box, "last": now, "strong": now})
+                index = len(tracks)-1
+            item = tracks[index]
+            if score >= threshold:
+                item["strong"] = now
+            # Confirm within five seconds of strong evidence; confirmed passages
+            # may use the same matched train to maintain their tail.
+            if self.active or now-item["strong"] <= 5:
+                positive = True
+                if score < threshold:
+                    self._weak_at = now
+            item.update(box=box, last=now)
+            used.add(index)
+        self._tracks = tracks
+        return positive
 
 
 def _box_iou(left, right):

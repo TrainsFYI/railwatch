@@ -447,3 +447,41 @@ def test_capture_detection_and_recording_pipeline(tmp_path, monkeypatch):
     finally:
         engine.close()
     assert not any(thread.is_alive() for thread in engine.threads)
+
+
+def test_train_trigger_continues_only_spatially_matched_strong_train():
+    def box(score, bbox=(.2,.3,.7,.45)):
+        return [{"bbox": list(bbox), "confidence": score}]
+    trigger = Trigger(3,15)
+    assert trigger.feed(False, 0, box(.2)) is None
+    assert trigger.feed(True, 1, box(.7)) is None
+    assert trigger.feed(False, 2, box(.18)) is None
+    assert trigger.feed(False, 3, box(.12)) is None
+    assert trigger.feed(False, 5, box(.15)) == "start"
+    assert trigger.feed(False, 10, box(.2, (.8,.7,.9,.9))) is None
+    assert trigger.feed(False, 20, []) == "end"
+    trigger = Trigger(3,15)
+    for stamp in range(20):
+        assert trigger.feed(False, stamp, box(.3)) is None
+    assert not trigger.active
+
+
+def test_train_trigger_does_not_confirm_disjoint_boxes_or_stale_anchors():
+    trigger = Trigger(3,15)
+    assert trigger.feed(True, 0, [{"bbox":[.1,.1,.3,.3],"confidence":.8}]) is None
+    for stamp in range(1,5):
+        assert trigger.feed(False, stamp, [{"bbox":[.7,.7,.9,.9],"confidence":.2}]) is None
+    for stamp in range(10,20):
+        assert trigger.feed(False, stamp, [{"bbox":[.1,.1,.3,.3],"confidence":.2}]) is None
+    assert not trigger.active
+
+
+
+def test_weak_continuation_does_not_confirm_a_brief_road_vehicle():
+    trigger = Trigger(3,15)
+    box = [.2,.3,.6,.45]
+    for stamp, score in [(10,.56),(11,.24),(12,.79)]:
+        assert trigger.feed(score>=.55, stamp, [{"bbox":box,"confidence":score}]) is None
+    for stamp in range(13,31):
+        assert trigger.feed(False, stamp, []) is None
+    assert not trigger.active

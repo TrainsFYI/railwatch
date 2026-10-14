@@ -7,7 +7,7 @@ import cv2
 from .detection import TrainDetector, Trigger
 from .motion import MotionIndex
 
-VERSION = 3
+VERSION = 4
 
 
 def analyse_trains(path, detector, settings, stop=None):
@@ -31,7 +31,8 @@ def analyse_trains(path, detector, settings, stop=None):
             next_sample = stamp+1
             score = detector.confidence(frame, settings.detection_mask)
             peak = max(peak,score)
-            action = trigger.feed(score >= settings.confidence,stamp)
+            action = trigger.feed(score >= settings.confidence,stamp,
+                                  detections=getattr(detector, 'last_detections', None), threshold=settings.confidence)
             if action == 'start':
                 current = {'started':max(0,trigger.first_positive-settings.pre_roll), 'ended':stamp}
             if current:

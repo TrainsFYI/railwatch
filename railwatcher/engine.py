@@ -331,7 +331,9 @@ class Engine:
                 with self.lock:
                     if self.frame is None or self.camera_status != "connected" or self.config.get() != settings:
                         continue
-                    action = trigger.feed(score >= settings.confidence, stamp)
+                    action = trigger.feed(score >= settings.confidence, stamp,
+                                          detections=getattr(detector, "last_detections", None),
+                                          threshold=settings.confidence)
                     if action == "start":
                         self.passages.start(settings, trigger.first_positive, self.model_version,
                                             {'name': 'device-installed', 'sha256': self.model_version,
