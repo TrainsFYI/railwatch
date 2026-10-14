@@ -127,18 +127,58 @@ async function main() {
     await page.waitForFunction(()=>document.querySelector('#preview-image').naturalWidth===400);
     const aligned=await image.boundingBox();
     assert.ok(Math.abs(aligned.width/aligned.height-4/3)<.03,'Calibration overlay matches native image aspect ratio');
-    for(const [imageX,mapX] of [[.25,.3],[.75,.7]]) {
+    async function pickPair(imageX,mapX) {
+      await image.scrollIntoViewIfNeeded();
       const box=await image.boundingBox();
       await page.mouse.click(box.x+box.width*imageX,box.y+box.height*.4);
+      await page.locator('#map').scrollIntoViewIfNeeded();
       const mapBox=await page.locator('#map').boundingBox();
       await page.mouse.click(mapBox.x+mapBox.width*mapX,mapBox.y+mapBox.height*.5);
     }
-    await page.getByText('2 matched pairs',{exact:true}).waitFor();
-    await page.getByRole('button',{name:'Save matched points'}).click();
+    await pickPair(.25,.3);
+    await page.getByRole('button',{name:'Save point A',exact:true}).click();
+    await page.getByText('Point A · Saved',{exact:true}).waitFor();
+    const partial=await page.evaluate(async()=> (await fetch('/api/config')).json());
+    assert.equal(partial.railway_calibration_draft.length,1,'First point persists on device before second point exists');
+    assert.equal(partial.railway_calibration,null);
+    await page.reload();
+    await page.getByRole('button',{name:'Camera settings',exact:true}).click();
+    await page.getByRole('button',{name:'Match railway points',exact:true}).click();
+    await page.getByText('Point A · Saved',{exact:true}).waitFor();
+    await page.waitForFunction(()=>document.querySelector('#preview-image').naturalWidth===400);
+    await pickPair(.75,.7);
+    let rejectOnce=true;
+    await page.route('**/api/config',route=>{
+      if(route.request().method()==='PATCH'&&rejectOnce){rejectOnce=false;return route.fulfill({status:500,json:{detail:'Save failed. Try again.'}});}
+      return route.continue();
+    });
+    await page.getByRole('button',{name:'Save point B',exact:true}).click();
+    await page.getByText('Save failed. Try again.',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Save point B',exact:true}).isEnabled(),true,'Failed save keeps the selected pair for retry');
+    await page.getByRole('button',{name:'Save point B',exact:true}).click();
+    await page.getByText('Point B · Saved',{exact:true}).waitFor();
+    await page.unroute('**/api/config');
+    await page.getByRole('button',{name:'Edit point A',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:'Apply calibration',exact:true}).isDisabled(),true);
+    await page.getByRole('button',{name:'Save point A',exact:true}).click();
+    await page.setViewportSize({width:1440,height:1000});
+    const applyBox=await page.getByRole('button',{name:'Apply calibration',exact:true}).boundingBox();
+    assert.ok(applyBox.y+applyBox.height<=1000,'Desktop apply control stays visible');
+    await page.screenshot({path:'artifacts/calibration-save-desktop.png',fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole('button',{name:'Add point C (optional)',exact:true}).click();
+    await pickPair(.5,.5);
+    await page.getByRole('button',{name:'Save point C',exact:true}).click();
+    await page.getByText('Point C · Saved',{exact:true}).waitFor();
+    assert.deepEqual(await page.locator('.rail-map-pin').allTextContents(),['A','B','C']);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Calibration does not overflow on mobile');
+    await page.screenshot({path:'artifacts/calibration-save-mobile.png',fullPage:true});
+    await page.getByRole('button',{name:'Apply calibration',exact:true}).click();
     await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();
     await page.unroute('**/api/preview?*');
     const calibration=await page.evaluate(async()=> (await fetch('/api/config')).json());
-    assert.equal(calibration.railway_calibration.points.length,2);
+    assert.equal(calibration.railway_calibration.points.length,3);
+    assert.equal(calibration.railway_calibration_draft.length,0);
     assert.ok(calibration.railway_calibration.revision!=='new');
     await page.screenshot({path:'artifacts/settings-mobile.png',fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Mobile settings overflow');

@@ -47,3 +47,22 @@ def test_malformed_calibration_does_not_replace_config(tmp_path):
     for value in ['invalid', [], 12]:
         with pytest.raises(ValidationError):store.update({'railway_calibration':value})
     assert store.get().railway_calibration is None
+
+
+def test_single_point_draft_survives_reload_and_pose_changes_clear_it(tmp_path):
+    store=ConfigStore(tmp_path)
+    point=proposal()['points'][0]
+    store.update({'railway_calibration_draft':[point]})
+    restored=ConfigStore(tmp_path).get()
+    assert len(restored.railway_calibration_draft)==1
+    assert restored.railway_calibration is None
+    assert store.update({'bearing':90}).railway_calibration_draft==[]
+
+
+def test_invalid_point_draft_cannot_replace_saved_point(tmp_path):
+    store=ConfigStore(tmp_path)
+    point=proposal()['points'][0]
+    store.update({'railway_calibration_draft':[point]})
+    for invalid in [[point]*4,[{**point,'image':[-1,0]}]]:
+        with pytest.raises(ValidationError):store.update({'railway_calibration_draft':invalid})
+    assert len(ConfigStore(tmp_path).get().railway_calibration_draft)==1

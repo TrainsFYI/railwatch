@@ -96,7 +96,10 @@ function drawMask() {
     context.fillStyle = '#fff'; context.fillText(landmark.label,x+4,Math.max(14,y-5),Math.max(1,width-8));
   }
   if (page === 'calibration') {
-    railPoints.forEach((point, index) => {
+    const previewPoints=railPoints.map((point,index)=>({...point,index})).filter(point=>point.index!==railDraft?.index);
+    if(railDraft?.image)previewPoints.push(railDraft);
+    previewPoints.forEach((point) => {
+      const index=point.index;
       if (!point.image) return;
       const [x,y] = point.image.map((value,i)=>value*(i?rect.height:rect.width));
       context.fillStyle='#ffcf40'; context.beginPath(); context.arc(x,y,7,0,Math.PI*2); context.fill();
@@ -455,39 +458,80 @@ function bindDevicePairing() {
 }
 
 
-let railPoints = [];
+let railPoints = [], railDraft = null;
 function calibrationPage(returnTo = settingsPage) {
   if(!window.L) return toast('The map could not load. Check your connection and try again.');
   cleanup(); page='calibration';
-  railPoints = (config.railway_calibration?.points || []).map(point=>({...point,image:[...point.image]}));
-  $('#app').innerHTML=`<div class="intro"><div><h1>Match railway points</h1><p>Choose the same fixed point on a rail in the camera and on the map. Repeat farther along the same straight track.</p></div><button class="secondary" id="calibration-back">Back to settings</button></div><div class="settings-grid">${previewHTML('calibration',false)}<section class="card"><div id="map" style="height:420px"></div><p>Use fixed points at rail level. Keep all points on the same straight section. A third pair helps account for perspective; speed still requires verification.</p></section></div><section class="card"><p id="rail-instruction" aria-live="polite"></p><p id="rail-summary"></p><p>Recalibrate after moving or zooming the camera. These are user-supplied points, pending verification.</p><div class="actions"><button class="secondary" id="rail-reset">Camera moved / start again</button><button class="secondary" id="rail-third">Add third point</button><button id="rail-save">Save matched points</button></div><div id="error" class="error-box" hidden></div></section>`;
+  const stored=config.railway_calibration_draft?.length?config.railway_calibration_draft:(config.railway_calibration?.points || []);
+  railPoints=stored.map(point=>({...point,image:[...point.image]}));
+  railDraft=railPoints.length<2?{index:railPoints.length}:null;
+  let busy=false, selection='image', markers=[];
+  $('#app').innerHTML=`<div id="calibration-workspace"><div class="intro"><div><h1>Match railway points</h1><p>Match the same fixed spot on the rail in the camera image and map. Save each point, then repeat farther along the same straight rail.</p></div><button class="secondary" id="calibration-back">Back to settings</button></div>
+    <section class="card rail-progress"><div id="rail-saved" aria-live="polite"></div><button class="secondary" id="rail-third">Add point C (optional)</button><button class="text-button" id="rail-reset">Camera moved / clear all points</button></section>
+    <section class="card rail-guidance"><h2 id="rail-instruction"></h2><div class="rail-steps"><button class="secondary" id="rail-select-image">1. Choose camera point</button><button class="secondary" id="rail-select-map">2. Choose matching map point</button></div><p id="rail-feedback" role="status"></p><div id="error" class="error-box" hidden></div></section>
+    <div class="settings-grid">${previewHTML('calibration',false)}<section class="card"><h3>Matching map location</h3><div id="map" style="height:420px"></div><p>Click the same spot on the same rail. You can drag the selected map pin to adjust it.</p></section></div>
+    <p>Two saved pairs establish the rail axis. A third pair can support future speed calibration. Recalibrate after moving or zooming the camera.</p>
+    <div class="rail-save-bar"><span id="rail-summary" aria-live="polite"></span><button id="rail-save-point">Save point A</button><button id="rail-save" class="secondary">Apply calibration</button></div></div>`;
   $('#calibration-back').onclick=returnTo;
   map=L.map('map').setView([config.latitude??43.65,config.longitude??-79.38],18);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery © Esri',maxZoom:20}).addTo(map);
   L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',{attribution:'© OpenRailwayMap, © OpenStreetMap contributors',maxZoom:19}).addTo(map);
-  let markers=[];
+  const hasMap=()=>railDraft?.latitude!==undefined;
   const refresh=()=>{
-    markers.forEach(item=>map.removeLayer(item)); markers=[];
-    railPoints.forEach((point,i)=>{if(point.latitude!==undefined)markers.push(L.marker([point.latitude,point.longitude]).addTo(map).bindTooltip('ABC'[i],{permanent:true}));});
-    const incomplete=railPoints.findIndex(point=>point.latitude===undefined);
-    const complete=railPoints.length>=2 && incomplete===-1;
-    $('#rail-instruction').textContent=incomplete!==-1?`Point ${'ABC'[incomplete]}: click its matching position on the map.`:railPoints.length<2?`Point ${'ABC'[railPoints.length]}: click a fixed point on the rail in the camera image.`: 'Two pairs establish direction. Optionally add a third pair farther along this straight rail.';
-    $('#rail-summary').textContent=`${railPoints.filter(point=>point.latitude!==undefined).length} matched pairs`;
-    $('#rail-save').disabled=!complete;
-    $('#rail-third').disabled=!complete||railPoints.length>=3;
+    markers.forEach(item=>map.removeLayer(item));markers=[];
+    const points=railPoints.map((point,index)=>({...point,index})).filter(point=>point.index!==railDraft?.index);
+    if(hasMap())points.push(railDraft);
+    points.forEach(point=>{
+      const editing=point.index===railDraft?.index;
+      const pin=L.marker([point.latitude,point.longitude],{draggable:editing&&!busy,title:`Point ${'ABC'[point.index]}`,icon:L.divIcon({className:'rail-map-marker',html:`<span class="rail-map-pin">${'ABC'[point.index]}</span>`,iconSize:[30,30],iconAnchor:[15,15]})}).addTo(map);
+      if(editing)pin.on('dragend',()=>{const p=pin.getLatLng();railDraft.latitude=p.lat;railDraft.longitude=p.lng;refresh();});
+      markers.push(pin);
+    });
+    const label=railDraft?'ABC'[railDraft.index]:null;
+    $('#rail-instruction').textContent=label?`Point ${label}: ${selection==='image'?'choose a fixed spot in the camera image':'choose the same spot on the map'}`:'Points saved. Apply your calibration below.';
+    $('#rail-select-image').textContent=`1. Camera point${railDraft?.image?' ✓':''}`;
+    $('#rail-select-map').textContent=`2. Map point${hasMap()?' ✓':''}`;
+    $('#rail-select-image').disabled=!railDraft||busy;$('#rail-select-map').disabled=!railDraft?.image||busy;
+    $('#rail-select-image').setAttribute('aria-pressed',String(!!railDraft&&selection==='image'));
+    $('#rail-select-map').setAttribute('aria-pressed',String(!!railDraft&&selection==='map'));
+    $('#rail-feedback').textContent=railDraft?.image&&hasMap()?`Both locations selected. Click Save point ${label}.`:railDraft?.image?'Camera point selected. Now click its matching map location.':railDraft?'Click the camera image first.':'Each point is saved on this device. Apply calibration to use the matched pairs.';
+    $('#rail-saved').innerHTML=railPoints.length?railPoints.map((point,i)=>`<div class="rail-saved-point"><strong>Point ${'ABC'[i]} · Saved</strong><span>${point.latitude.toFixed(6)}, ${point.longitude.toFixed(6)}</span><button class="secondary rail-edit" data-index="${i}" ${busy?'disabled':''}>Edit point ${'ABC'[i]}</button></div>`).join(''):'<p>No saved points yet. Start with point A below.</p>';
+    document.querySelectorAll('.rail-edit').forEach(button=>button.onclick=()=>{const index=+button.dataset.index;railDraft={...railPoints[index],image:[...railPoints[index].image],index};selection='image';refresh();$('#rail-instruction').scrollIntoView({block:'center'});});
+    $('#rail-summary').textContent=`${railPoints.length} saved point${railPoints.length===1?'':'s'}${railPoints.length<2?' · save at least two to apply':''}`;
+    $('#rail-save-point').textContent=label?`Save point ${label}`:'All points saved';
+    $('#rail-save-point').disabled=busy||!railDraft?.image||!hasMap();
+    const editing=railDraft&&(railDraft.image||hasMap());
+    $('#rail-save').disabled=busy||railPoints.length<2||!!editing;
+    $('#rail-save').classList.toggle('secondary',!!railDraft);
+    $('#rail-save-point').classList.toggle('secondary',!railDraft);
+    $('#rail-third').disabled=busy||railPoints.length!==2||!!editing;
+    $('#rail-reset').disabled=busy;
     drawMask();
   };
   $('#mask-canvas').onclick=event=>{
-    if(railPoints.some(point=>point.latitude===undefined)||railPoints.length>=2)return;
+    if(busy||!railDraft||selection!=='image')return;
     const rect=event.currentTarget.getBoundingClientRect();
-    railPoints.push({image:[Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))]}); refresh();
+    railDraft.image=[Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))];
+    selection='map';refresh();
   };
-  let third=false;
-  const imageClick=$('#mask-canvas').onclick;
-  $('#mask-canvas').onclick=event=>{if(third&&railPoints.length===2){const rect=event.currentTarget.getBoundingClientRect();railPoints.push({image:[Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))]});third=false;refresh();}else imageClick(event);};
-  map.on('click',event=>{const point=railPoints.find(point=>point.latitude===undefined);if(!point)return;point.latitude=event.latlng.lat;point.longitude=event.latlng.lng;refresh();});
-  $('#rail-third').onclick=()=>{third=true;$('#rail-instruction').textContent='Point C: click a third fixed point on the same rail in the image.';};
-  $('#rail-reset').onclick=async()=>{try{config=await api('config','PATCH',{railway_calibration:null});railPoints=[];third=false;refresh();}catch(e){error(e.message);}};
-  $('#rail-save').onclick=async()=>{try{config=await api('config','PATCH',{railway_calibration:{revision:'new',points:railPoints}});toast('Railway points saved. Verification is needed before estimating speed.');returnTo();}catch(e){error(e.message);}};
-  startPreview(); refresh(); window.onresize=drawMask;
+  map.on('click',event=>{if(busy||!railDraft?.image||selection!=='map')return;railDraft.latitude=event.latlng.lat;railDraft.longitude=event.latlng.lng;refresh();});
+  $('#rail-select-image').onclick=()=>{selection='image';refresh();};
+  $('#rail-select-map').onclick=()=>{selection='map';refresh();};
+  $('#rail-third').onclick=()=>{railDraft={index:2};selection='image';refresh();};
+  $('#rail-save-point').onclick=async()=>{
+    if(!railDraft?.image||!hasMap()||busy)return;
+    busy=true;refresh();$('#error').hidden=true;
+    try{
+      const index=railDraft.index;
+      const next=railPoints.map(point=>({...point,image:[...point.image]}));
+      next[index]={image:[...railDraft.image],latitude:railDraft.latitude,longitude:railDraft.longitude};
+      config=await api('config','PATCH',{railway_calibration_draft:next});
+      railPoints=config.railway_calibration_draft.map(point=>({...point,image:[...point.image]}));
+      railDraft=railPoints.length<2?{index:railPoints.length}:null;selection='image';
+      toast(`Point ${'ABC'[index]} saved on this device.`);
+    }catch(e){error(e.message);}finally{busy=false;refresh();}
+  };
+  $('#rail-reset').onclick=async()=>{if(busy)return;busy=true;refresh();try{config=await api('config','PATCH',{railway_calibration:null,railway_calibration_draft:[]});railPoints=[];railDraft={index:0};selection='image';}catch(e){error(e.message);}finally{busy=false;refresh();}};
+  $('#rail-save').onclick=async()=>{if(busy)return;busy=true;refresh();try{config=await api('config','PATCH',{railway_calibration:{revision:'new',points:railPoints},railway_calibration_draft:[]});toast('Calibration saved. Verification is needed before estimating speed.');returnTo();}catch(e){error(e.message);}finally{busy=false;if(page==='calibration')refresh();}};
+  startPreview();refresh();window.onresize=drawMask;
 }

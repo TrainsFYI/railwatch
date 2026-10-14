@@ -333,3 +333,17 @@ dialog video { width: 100%; max-height: 70vh; margin-top: 14px; }
 .landmark-controls { display: flex; align-items: end; gap: 12px; }
 .landmark-controls > div { flex: 1; min-width: 0; }
 .settings-mask #mask-canvas { touch-action: none; }
+
+#calibration-workspace { padding-bottom: 120px; }
+.rail-progress { margin-bottom: 16px; }
+.rail-saved-point { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.rail-saved-point span { flex: 1; font-size: 13px; color: var(--muted); }
+.rail-guidance { margin-bottom: 18px; }
+.rail-steps { display: flex; gap: 10px; flex-wrap: wrap; }
+.rail-steps [aria-pressed="true"] { outline: 2px solid var(--signal); }
+.rail-save-bar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 2000; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px max(16px,calc((100vw - 1200px)/2)); background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -3px 14px #0002; }
+.rail-save-bar span { flex: 1; min-width: 140px; }
+@media(max-width:600px) { .rail-save-bar span { flex-basis:100%; } .rail-save-bar button { flex:1; } }
+
+.rail-map-pin { display: grid; place-items: center; width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; background: #1e40af; color: white; font: bold 15px sans-serif; box-shadow: 0 2px 6px #0005; }
+body:has(#calibration-workspace) #toast { bottom: 150px; pointer-events: none; }

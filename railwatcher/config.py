@@ -76,6 +76,7 @@ class Settings(BaseModel):
     detection_mask: list[tuple[float, float]] = Field(default_factory=list, max_length=32)
     landmarks: list[Landmark] = Field(default_factory=list, max_length=32)
     railway_calibration: RailCalibration | None = None
+    railway_calibration_draft: list[RailPoint] = Field(default_factory=list, max_length=3)
     confirmations: int = Field(default=3, ge=1, le=10)
     pre_roll: int = Field(default=120, ge=3, le=120)
     post_roll: int = Field(default=15, ge=3, le=60)
@@ -145,7 +146,7 @@ class ConfigStore:
             # A source or pose change invalidates the old image-to-rail mapping.
             pose_fields = ("source", "source_type", "latitude", "longitude", "bearing", "field_of_view")
             if any(key in patch and patch[key] != current[key] for key in pose_fields):
-                patch = {**patch, "railway_calibration": None}
+                patch = {**patch, "railway_calibration": None, "railway_calibration_draft": []}
             elif isinstance(patch.get("railway_calibration"), dict):
                 patch = {**patch, "railway_calibration": {**patch["railway_calibration"], "revision": uuid4().hex}}
             current.update(patch)

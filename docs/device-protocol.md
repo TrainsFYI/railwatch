@@ -104,3 +104,10 @@ The private service derives a direction candidate for staff review. User points
 never grant staff approval or enable map publication. Speed remains unknown
 until geometry and tracking have been independently verified; two point pairs
 alone do not determine perspective-correct speed.
+
+
+Point matching now has a separate **Save point A/B/C** action. Each saved pair
+is persisted on the device in `railway_calibration_draft` and survives reloads,
+including a single saved point. **Apply calibration** requires at least two
+saved pairs and creates the active revision, clearing the draft. Drafts are
+not sent as verified calibration and camera source/pose changes clear them.
