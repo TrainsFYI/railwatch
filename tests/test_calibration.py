@@ -25,3 +25,18 @@ def test_bad_coordinates_rejected():
     for patch in [{'image':[-1,0]}, {'latitude':float('nan')}, {'longitude':-79.}, {'verified':True}]:
         data=proposal();data['points'][1].update(patch)
         with pytest.raises(ValidationError):RailCalibration.model_validate(data)
+
+
+def test_passage_freezes_calibration_at_capture_time(tmp_path):
+    from railwatcher.store import Store
+    from railwatcher.passages import Passages
+    from railwatcher.config import Settings
+    store=Store(tmp_path);passages=Passages(store)
+    settings=Settings(railway_calibration=proposal())
+    identity=passages.start(settings,12,'model')
+    settings.railway_calibration=None
+    store.create('part',0,.9,{})
+    path=store.clips/'part.mp4';path.write_bytes(b'video')
+    store.update('part',ended=30,filename=path.name,status='pending',bytes=5)
+    passages.add_part(identity,'part');passages.end()
+    assert passages.contract(passages.pending(),'camera')['camera']['calibration_revision']=='new'

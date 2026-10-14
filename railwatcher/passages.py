@@ -42,6 +42,7 @@ class Passages:
                     'incomplete_reason': None, 'parts': [], 'observations': [],
                     'model_version': model_version,
                     'configuration_revision': hashlib.sha256(json.dumps(settings.model_dump(exclude={"source", "api_key", "upload_url"}), sort_keys=True).encode()).hexdigest(),
+                    'calibration_revision': settings.railway_calibration.revision if settings.railway_calibration else None,
                     'origin': 'confirmed_live', 'camera_context': self.context(settings, model_version, model_identity=model_identity)}
         with self.store.connect() as db:
             db.execute("INSERT INTO passages(id,metadata,status) VALUES(?,?,'recording')", (identity, json.dumps(metadata)))
@@ -166,7 +167,7 @@ class Passages:
                             'started_at': utc(start), 'ended_at': utc(end), 'timebase': 'utc', 'frame_timestamps': []},
                 'media': {'parts': videos, 'poster_frame': None},
                 'camera': {'camera_id': camera_id, 'name': None, 'location': None, 'heading_true_deg': None,
-                           'heading_accuracy_deg': None, 'calibration_revision': None, 'rail_mapping': None},
+                           'heading_accuracy_deg': None, 'calibration_revision': passage.get('calibration_revision'), 'rail_mapping': None},
                 'edge_observations': [{'kind': 'train', 'pts_seconds': item['stamp'] - start, 'bbox': item['bbox'],
                                        'confidence': item['confidence'], 'state': 'unknown'}
                                       for item in passage['observations'] if start <= item['stamp'] <= end],
