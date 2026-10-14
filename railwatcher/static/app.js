@@ -12,7 +12,7 @@ function updateThemeToggle() {
   button.setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} mode`);
   $('#theme-label').textContent = dark ? 'Light mode' : 'Dark mode';
   $('.theme-icon').textContent = dark ? '☀' : '☾';
-  $('meta[name="theme-color"]').content = '#1e40af';
+  $('meta[name="theme-color"]').content = dark ? '#151517' : '#ffffff';
 }
 $('#theme-toggle').onclick = () => {
   const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -179,7 +179,7 @@ function startPreview() {
   const image = $('#preview-image');
   if (!image) return;
   image.onload=()=>{
-    if(page==='calibration' && image.naturalWidth && !document.fullscreenElement){
+    if((page==='calibration'||page==='settings') && image.naturalWidth && !document.fullscreenElement){
       const viewer=image.closest('.preview');
       viewer.style.flex='none';viewer.style.minHeight='0';
       viewer.style.aspectRatio=`${image.naturalWidth} / ${image.naturalHeight}`;
@@ -188,6 +188,7 @@ function startPreview() {
   };
   const tick = async () => {
     if (!image.isConnected) return;
+    if(page==='settings'&&!['camera','detection'].includes(settingsSection)){previewTimer=setTimeout(tick,1000);return;}
     try {
       const response = await fetch(`/api/preview?t=${Date.now()}`);
       if (!response.ok) throw new Error();
@@ -256,11 +257,11 @@ function mountMap() {
     rails.on('tileerror',() => $('#map-message').textContent='Some railway tiles could not load. You can still place the camera or enter coordinates.');
     L.control.layers({'Satellite':satellite},{'Railways':rails}).addTo(map);
     map.on('click', e=>position(e.latlng.lat,e.latlng.lng));
-    if(locationChosen) position(config.latitude, config.longitude);
+    if(locationChosen) position(config.latitude, config.longitude, true);
   } else $('#map-message').textContent = 'Map library unavailable. Enter coordinates to continue.';
 }
 function bindLocationControls() {
-  $('#go-coordinates').onclick = () => {try {const [lat,lon] = coordinates(); position(lat,lon); if(map) map.setView([lat,lon],18);}catch(e){error(e.message);}};
+  $('#go-coordinates').onclick = () => {try {const [lat,lon] = coordinates(); position(lat,lon,true); if(map) map.setView([lat,lon],18);}catch(e){error(e.message);}};
   $('#latitude').oninput = $('#longitude').oninput = () => {locationChosen=false;};
   $('#locate').onclick = () => { if(!navigator.geolocation) return error('Location is unavailable. Enter coordinates or click the map.'); navigator.geolocation.getCurrentPosition(p => {position(p.coords.latitude,p.coords.longitude); if(map) map.setView([p.coords.latitude,p.coords.longitude],18);},()=>error('Location access is unavailable here. Click the map or enter coordinates.'),{timeout:10000}); };
   $('#bearing').oninput = () => {$('#bearing-value').textContent = `${$('#bearing').value}° · ${compass(+$('#bearing').value)}`; drawCone();};
@@ -268,9 +269,10 @@ function bindLocationControls() {
 }
 function coordinates() {const a=$('#latitude').value,b=$('#longitude').value; const lat=Number(a),lon=Number(b);if(!a||!b||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>85||Math.abs(lon)>180) throw new Error('Choose a location on the map or enter valid latitude and longitude.');return [lat,lon];}
 function compass(b) {return ['N','NE','E','SE','S','SW','W','NW'][Math.round(b/45)%8];}
-function position(lat,lon) {
+function position(lat,lon,preservePrecision=false) {
+  const originalLongitude=lon;
   lon = ((lon+180)%360+360)%360-180; if(Math.abs(lat)>85) return;
-  locationChosen = true; $('#latitude').value=lat.toFixed(6);$('#longitude').value=lon.toFixed(6);
+  locationChosen = true; $('#latitude').value=preservePrecision?String(lat):lat.toFixed(6);$('#longitude').value=preservePrecision?String(originalLongitude):lon.toFixed(6);
   if(!map) return;
   if(marker) marker.remove();
   marker=L.marker([lat,lon],{draggable:true,icon:L.divIcon({className:'',html:'<div class="camera-marker"></div>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
@@ -394,7 +396,9 @@ function reviewPage() {
   };
   refresh();
 }
-function settingsPage() {
+let settingsSection = 'camera';
+function settingsPage(section = settingsSection) {
+  settingsSection=typeof section==='string'?section:settingsSection;
   cleanup(); page='settings'; locationChosen=config.latitude!==null&&config.longitude!==null; sourceType=config.source_type;
   detectionMask = (config.detection_mask || []).map(point => [...point]);
   landmarks = (config.landmarks || []).map(item=>({...item,box:[...item.box]}));
@@ -407,12 +411,87 @@ function settingsPage() {
     <section class="card"><h2>TrainsFYI account</h2><p>Authorize this camera in your browser. Confirmed train passages upload automatically; footage stays private.</p><button type="button" id="pair-device">Connect to TrainsFYI</button><div id="device-pairing" aria-live="polite"></div><div hidden><input id="api-key"><input id="clear-key" type="checkbox"><input id="upload-url" value="${escapeHTML(config.upload_url)}"></div></section>
     <div class="full-width">${previewHTML('settings-mask')}${landmarkEditorHTML()}</div>
   </div><div id="error" class="error-box" hidden></div><div class="actions"><button class="secondary" type="button" id="cancel-settings">Cancel</button><span class="hint">Settings are saved on this device.</span><button id="save-settings">Save settings</button></div></form>`;
+  buildSettingsSections();
   $('#back-dashboard').onclick=dashboard; $('#cancel-settings').onclick=dashboard;
-  $('#rail-calibration').onclick=()=>calibrationPage();
+  $('#rail-calibration').onclick=()=>calibrationPage(()=>settingsPage('railway'));
   bindDevicePairing();
   settingsSourceField(); setupMaskEditor(); setupLandmarkEditor(); startPreview(); $('#settings-source-type').onchange=()=>{sourceType=$('#settings-source-type').value;settingsSourceField();};
   mountMap(); bindLocationControls();
-  $('#settings-form').onsubmit=async event=>{event.preventDefault();const button=$('#save-settings');button.disabled=true;$('#error').hidden=true;try{const [latitude,longitude]=coordinates();const source=$('#settings-source').value.trim();if(!source&&sourceType!==config.source_type)throw new Error('Enter a camera address or device.');if(detectionMask.length>0&&detectionMask.length<3)throw new Error('Add at least three points for a detection area, or clear it to use the full image.');config=await api('config','PATCH',{name:$('#settings-name').value.trim(),source_type:sourceType,source:source||null,detection_mask:detectionMask,landmarks,latitude,longitude,bearing:+$('#bearing').value,field_of_view:+$('#fov').value,confidence:+$('#confidence').value,confirmations:+$('#confirmations').value,pre_roll:+$('#pre-roll').value,post_roll:+$('#post-roll').value,max_clip_seconds:+$('#max-clip').value,storage_gb:+$('#storage').value,api_key:$('#clear-key').checked?'':($('#api-key').value.trim()||null),upload_url:$('#upload-url').value.trim()});toast('Settings saved.');settingsPage();}catch(e){error(e.message);}finally{if(button.isConnected)button.disabled=false;}};
+  window.onresize=()=>{drawMask();scrollSettingsTabIntoView();if(map&&settingsSection==='location')map.invalidateSize();};
+  $('#settings-form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;if(!form.checkValidity()){const invalid=form.querySelector(':invalid');showSettingsSection(invalid.closest('[data-settings-panel]').dataset.settingsPanel);invalid.reportValidity();return;}const button=$('#save-settings');button.disabled=true;$('#error').hidden=true;try{const [latitude,longitude]=coordinates();const source=$('#settings-source').value.trim();if(!source&&sourceType!==config.source_type)throw new Error('Enter a camera address or device.');if(detectionMask.length>0&&detectionMask.length<3)throw new Error('Add at least three points for a detection area, or clear it to use the full image.');config=await api('config','PATCH',{name:$('#settings-name').value.trim(),source_type:sourceType,source:source||null,detection_mask:detectionMask,landmarks,latitude,longitude,bearing:+$('#bearing').value,field_of_view:+$('#fov').value,confidence:+$('#confidence').value,confirmations:+$('#confirmations').value,pre_roll:+$('#pre-roll').value,post_roll:+$('#post-roll').value,max_clip_seconds:+$('#max-clip').value,storage_gb:+$('#storage').value,api_key:$('#clear-key').checked?'':($('#api-key').value.trim()||null),upload_url:$('#upload-url').value.trim()});toast('Settings saved.');settingsPage();}catch(e){error(e.message);}finally{if(button.isConnected)button.disabled=false;}};
+}
+
+function buildSettingsSections() {
+  const form=$('#settings-form');form.noValidate=true;
+  const old=form.querySelector('.settings-grid');
+  const [camera,location,mapCard,recording,account,visual]=[...old.children];
+  const confidence=recording.querySelector('.inline-inputs');
+  const preview=visual.querySelector('.preview-card');
+  const landmarks=visual.querySelector('.landmark-editor');
+  const match=$('#rail-calibration');match.remove();
+  location.querySelector('h2').textContent='Camera position';
+  recording.querySelector('h2').remove();
+  const padding=$('#pre-roll').closest('.inline-inputs');
+  const maximum=$('#max-clip').parentElement, storage=$('#storage').parentElement;
+  const captureGroup=document.createElement('div');captureGroup.className='settings-group';captureGroup.innerHTML='<h3>Clip capture</h3>';captureGroup.append(padding,maximum);
+  const storageGroup=document.createElement('div');storageGroup.innerHTML='<h3>Local storage</h3><p>Set the space available for stored clips.</p>';storageGroup.append(storage);
+  recording.replaceChildren(captureGroup,storageGroup);
+  camera.querySelector('h2').outerHTML='<h3>Camera connection</h3>';
+  location.querySelector('h2').outerHTML='<h3>Camera position</h3>';
+  const panel=(id,title,description)=>{const element=document.createElement('section');element.id='settings-panel-'+id;element.dataset.settingsPanel=id;element.className='settings-panel';element.setAttribute('role','tabpanel');element.setAttribute('aria-labelledby','settings-tab-'+id);element.innerHTML=`<div class="settings-panel-heading"><h2>${title}</h2><p>${description}</p></div>`;return element;};
+  const panels={
+    camera:panel('camera','Camera','Name your camera and manage its video connection.'),
+    location:panel('location','Location & view','Set where the camera is installed and the view it covers.'),
+    railway:panel('railway','Railway calibration','Match fixed points in the camera image with the same points on the map.'),
+    detection:panel('detection','Train detection','Choose the track area, detector sensitivity, and labeled landmarks.'),
+    recording:panel('recording','Recording & storage','Control clip padding, recording length, and local storage.'),
+    account:panel('account','TrainsFYI account','Connect this device to your account for private uploads.')
+  };
+  const cameraGrid=document.createElement('div');cameraGrid.className='camera-settings-grid';
+  const cameraPreview=document.createElement('div');cameraPreview.id='camera-preview-slot';
+  cameraGrid.append(camera,cameraPreview);panels.camera.append(cameraGrid);
+  const locationGrid=document.createElement('div');locationGrid.className='settings-location-grid';locationGrid.append(location,mapCard);panels.location.append(locationGrid);
+  const points=config.railway_calibration_draft?.length?config.railway_calibration_draft:(config.railway_calibration?.points||[]);
+  const draft=!!config.railway_calibration_draft?.length;
+  const summary=document.createElement('div');summary.className='settings-calibration-summary';
+  summary.innerHTML=`<h3>${points.length} saved point${points.length===1?'':'s'}</h3><p>${draft?'Draft points saved on this device. Open the point matcher to apply them.':config.railway_calibration?'Your matched points are saved. Review them here or update them after moving the camera.':'Add at least two matched points to establish the rail axis.'}</p>${points.length?`<dl>${points.map((point,index)=>`<div><dt>Point ${'ABC'[index]}</dt><dd>${point.latitude.toFixed(6)}, ${point.longitude.toFixed(6)}</dd></div>`).join('')}</dl>`:''}`;
+  summary.append(match);panels.railway.append(summary);
+  const sensitivity=document.createElement('div');sensitivity.className='settings-group';sensitivity.innerHTML='<h3>Detector sensitivity</h3>';sensitivity.append(confidence);panels.detection.append(sensitivity);
+  const detectionPreview=document.createElement('div');detectionPreview.id='detection-preview-slot';panels.detection.append(detectionPreview,landmarks);
+  panels.recording.append(recording);panels.account.append(account);
+  const shell=document.createElement('div');shell.className='settings-shell';
+  const sidebar=document.createElement('aside');sidebar.className='settings-sidebar';
+  sidebar.innerHTML='<nav aria-label="Settings sections"><div role="tablist" aria-label="Settings" aria-orientation="vertical">'+[['Device',[['camera','Camera'],['location','Location & view'],['railway','Railway calibration']]],['Capture',[['detection','Train detection'],['recording','Recording & storage']]],['Cloud',[['account','TrainsFYI account']]]].map(([group,items])=>`<div class="settings-nav-group"><span>${group}</span>${items.map(([id,label])=>`<button type="button" role="tab" id="settings-tab-${id}" data-settings-section="${id}" aria-controls="settings-panel-${id}">${label}</button>`).join('')}</div>`).join('')+'</div></nav>';
+  const content=document.createElement('div');content.className='settings-content';Object.values(panels).forEach(item=>content.append(item));
+  cameraPreview.append(preview);shell.append(sidebar,content);old.replaceWith(shell);
+  form.querySelector('.actions').classList.add('settings-save-actions');
+  $('#error').classList.add('settings-save-error');
+  form.querySelectorAll('[data-settings-section]').forEach(button=>{
+    button.onclick=()=>showSettingsSection(button.dataset.settingsSection);
+    button.onkeydown=event=>{const tabs=[...form.querySelectorAll('[data-settings-section]')];const index=tabs.indexOf(button);let next;if(event.key==='ArrowDown'||event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowUp'||event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;event.preventDefault();showSettingsSection(tabs[next].dataset.settingsSection);tabs[next].focus();};
+  });
+  showSettingsSection(settingsSection);
+}
+function showSettingsSection(section) {
+  if(!document.querySelector(`[data-settings-panel="${section}"]`))section='camera';
+  settingsSection=section;
+  document.querySelectorAll('[data-settings-panel]').forEach(panel=>panel.hidden=panel.dataset.settingsPanel!==section);
+  document.querySelectorAll('[data-settings-section]').forEach(button=>{const selected=button.dataset.settingsSection===section;button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;});
+  const preview=$('#settings-form .preview-card');
+  if(preview&&(section==='camera'||section==='detection')){
+    $('#'+section+'-preview-slot').append(preview);
+    preview.querySelector('.mask-editor').hidden=section!=='detection';
+    preview.querySelector('canvas').style.pointerEvents=section==='detection'?'auto':'none';
+  }
+  requestAnimationFrame(()=>{if(page!=='settings')return;if(map)map.invalidateSize();drawMask();scrollSettingsTabIntoView();});
+}
+
+function scrollSettingsTabIntoView() {
+  if(page!=='settings')return;
+  const list=$('.settings-sidebar [role="tablist"]'), selected=$('.settings-sidebar [aria-selected="true"]');
+  if(!list||!selected||list.scrollWidth<=list.clientWidth)return;
+  const outer=list.getBoundingClientRect(), inner=selected.getBoundingClientRect();
+  list.scrollLeft+=inner.left-outer.left-(outer.width-inner.width)/2;
 }
 async function settingsSourceField() {
   const isRtsp=sourceType==='rtsp';
