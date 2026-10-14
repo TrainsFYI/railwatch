@@ -71,7 +71,8 @@ class Recording:
         metadata = settings.model_dump(include={"name", "latitude", "longitude", "bearing", "field_of_view"})
         metadata.update(schema_version=1, capture_fps=FPS, width=WIDTH, height=HEIGHT)
         store.create(self.id, self.started, score, metadata)
-        self.frames = queue.Queue(maxsize=FPS * 40)
+        # Pre-roll is queued in a burst; reserve it independently of live encoder slack.
+        self.frames = queue.Queue(maxsize=len(frames) + FPS * 40)
         self.done = threading.Event()
         self.error = None
         self.cutoff = False
@@ -337,14 +338,16 @@ class Engine:
                                              'train_class_id': getattr(detector, 'train_class', 0), 'input_size': 640})
                     self.passages.observation(stamp, score, getattr(detector, "last_detections", getattr(detector, "last_boxes", [])), score >= settings.confidence)
                     self.writers = [writer for writer in self.writers if writer.thread.is_alive()]
-                    if self.recording and (
-                        action == "end"
-                        or self.recording.done.is_set()
+                    if action == "end":
+                        # End passage identity even if its last writer failed or already closed.
+                        self._finish()
+                    elif self.recording and (
+                        self.recording.done.is_set()
                         or stamp - self.recording.started >= settings.max_clip_seconds
                     ):
                         if self.recording.cutoff and self.passages.active:
                             self.passages.mutate(self.passages.active, lambda value: value.update(complete=False, incomplete_reason="forced_storage_cutoff"))
-                        self._finish(boundary=action != "end")
+                        self._finish(boundary=True)
                     if not self.recording and trigger.active:
                         # Reserve a conservative 1 MB/s for this recording, including pre-roll.
                         reserve = (settings.max_clip_seconds + settings.pre_roll) * 1_000_000
