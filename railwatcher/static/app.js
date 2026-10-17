@@ -51,7 +51,7 @@ async function boot() {
     if (config.setup_complete) dashboard();
     else { let resume=0; try { resume=Number(sessionStorage.getItem('railwatcher-setup-step'))||0; } catch {} setup(Number.isInteger(resume)?Math.min(5,Math.max(0,resume)):0); }
   } catch(e) {
-    $('#app').innerHTML = `<section class="card"><h1>Railwatcher is unavailable</h1><p>${escapeHTML(e.message)}</p><button id="reload">Retry</button></section>`;
+    $('#app').innerHTML = `<section class="card"><h1>RailWatch is unavailable</h1><p>${escapeHTML(e.message)}</p><button id="reload">Retry</button></section>`;
     $('#reload').onclick = boot;
   }
 }

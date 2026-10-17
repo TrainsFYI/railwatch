@@ -35,7 +35,7 @@ async function main() {
     });
     assert.deepEqual(dateLabels,['Today at 2:53 PM','Yesterday at 2:53 PM','Wednesday, January 1, 2025 at 2:53 PM']);
 
-    await page.getByRole('link',{name:'Railwatcher by Trains.FYI home'}).waitFor();
+    await page.getByRole('link',{name:'RailWatch by Trains.FYI home'}).waitFor();
     await page.getByRole('button',{name:'Switch to dark mode'}).click();
     assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
     await page.reload();

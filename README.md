@@ -1,4 +1,7 @@
-# Railwatcher
+# RailWatch
+
+[TrainsFYI/railwatch](https://github.com/TrainsFYI/railwatch) is the source repository.
+Existing `railwatcher` commands, service names, and data paths remain compatible.
 
 A Raspberry Pi lookout for trains.fyi. Connect a USB webcam or local RTSP camera, place it on a satellite map, and record passing trains with a local train detector.
 
@@ -19,22 +22,22 @@ A Raspberry Pi lookout for trains.fyi. Connect a USB webcam or local RTSP camera
 
 For one camera, start with:
 
-- **Raspberry Pi 5, 4 GB** (8 GB if you also plan to run other services). This is a suggested baseline; inference speed and temperature still need checking with your camera/model. Use the official 27 W USB-C power supply and an active cooler or fan case for continuous inference. Railwatcher supports 64-bit Raspberry Pi OS; the Pi 5 has a 64-bit quad-core CPU and USB 3 for camera/storage peripherals. See the [Pi 5 specifications](https://www.raspberrypi.com/products/raspberry-pi-5/).
+- **Raspberry Pi 5, 4 GB** (8 GB if you also plan to run other services). This is a suggested baseline; inference speed and temperature still need checking with your camera/model. Use the official 27 W USB-C power supply and an active cooler or fan case for continuous inference. RailWatch supports 64-bit Raspberry Pi OS; the Pi 5 has a 64-bit quad-core CPU and USB 3 for camera/storage peripherals. See the [Pi 5 specifications](https://www.raspberrypi.com/products/raspberry-pi-5/).
 - **Wired Ethernet for the Pi** where possible, especially when the camera streams over Wi-Fi. Use a good quality 64 GB or larger microSD card for the OS; an external USB 3 SSD is preferred for video storage and sustained use.
 - **One camera with a stable 1280×720 or higher stream.** A USB UVC webcam can connect directly to the Pi. For an outdoor trackside view, choose a weather-rated camera with night/IR support and a local RTSP stream; keep the camera's power and network connection stable.
 
-**Recommended budget camera: Wyze Cam v3.** Current production firmware includes RTSP support; Wyze announced the production rollout on February 2, 2026, with the RTSP setting available in the Wyze app ([firmware announcement](https://forums.wyze.com/t/wyze-firmware-updates-2-2-2026/340669)). Update the Wyze app to version 3.9 or later and the camera firmware, then enable RTSP in the camera's advanced settings, set its RTSP username and password, and paste the generated stream URL into Railwatcher. Wyze rolls firmware out gradually, so update the app and camera before installation if the RTSP setting is missing. The v3 has night vision and needs its own USB power supply; it does not provide PoE ([Wyze v3 FAQ](https://support.wyze.com/hc/en-us/articles/7816811330331-More-Wyze-Cam-v3-FAQs)).
+**Recommended budget camera: Wyze Cam v3.** Current production firmware includes RTSP support; Wyze announced the production rollout on February 2, 2026, with the RTSP setting available in the Wyze app ([firmware announcement](https://forums.wyze.com/t/wyze-firmware-updates-2-2-2026/340669)). Update the Wyze app to version 3.9 or later and the camera firmware, then enable RTSP in the camera's advanced settings, set its RTSP username and password, and paste the generated stream URL into RailWatch. Wyze rolls firmware out gradually, so update the app and camera before installation if the RTSP setting is missing. The v3 has night vision and needs its own USB power supply; it does not provide PoE ([Wyze v3 FAQ](https://support.wyze.com/hc/en-us/articles/7816811330331-More-Wyze-Cam-v3-FAQs)).
 
 ### Install
 
 1. In [Raspberry Pi Imager](https://www.raspberrypi.com/software/), install **Raspberry Pi OS Lite (64-bit)** on the Pi's microSD card. In Imager's settings, set a hostname (for example `railwatcher`), create a user and password, enable SSH, and enter the Wi-Fi details if Ethernet is unavailable. Raspberry Pi's [OS install guide](https://www.raspberrypi.com/documentation/computers/getting-started.html) has screenshots and details. Boot the Pi and connect over SSH or use a keyboard and display.
-2. Put a copy of the Railwatcher project on the Pi. From a computer that already has this project checked out, run the following from the project directory (replace `pi` if you chose another username):
+2. Put a copy of the RailWatch project on the Pi. From a computer that already has this project checked out, run the following from the project directory (replace `pi` if you chose another username):
 
    ```sh
    rsync -av --exclude='.runtime' --exclude='.venv' --exclude='data' --exclude='artifacts' --exclude='__pycache__' ./ pi@railwatcher.local:~/railwatcher/
    ```
 
-   If the Pi hostname does not resolve, use its IP address instead of `railwatcher.local`. Alternatively, clone your Railwatcher repository directly on the Pi.
+   If the Pi hostname does not resolve, use its IP address instead of `railwatcher.local`. Alternatively, clone your RailWatch repository directly on the Pi.
 3. If you have the train detector model, place it at `models/train.onnx` in the project directory before installing. The model is not included in source control; see [Model export](#model-export). If you export it on your computer after copying the project, transfer it with `scp models/train.onnx models/train.json pi@railwatcher.local:~/railwatcher/models/` (replace the username/host as needed). Without the model, the web UI and camera preview still work, but train detection stays unavailable.
 4. Connect the USB camera, or configure the network camera's RTSP stream and confirm it is reachable from the Pi. On the Pi, run:
 

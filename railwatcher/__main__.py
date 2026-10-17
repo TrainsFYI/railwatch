@@ -9,7 +9,7 @@ from .app import create_app
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Railwatcher Raspberry Pi camera client")
+    parser = argparse.ArgumentParser(description="RailWatch Raspberry Pi camera client")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--data", type=Path, default=Path(os.environ.get("RAILWATCHER_DATA", "data")))

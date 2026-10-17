@@ -51,7 +51,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             await asyncio.to_thread(uploader.close)
             await asyncio.to_thread(pairing.close)
 
-    app = FastAPI(title="Railwatcher", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="RailWatch", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.config, app.state.store, app.state.engine = config, store, engine
     app.state.motion = motion
     app.state.flashes = flashes
@@ -63,7 +63,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             origin = request.headers.get("origin")
             expected = f"{request.url.scheme}://{request.headers.get('host')}"
             if (origin and origin != expected) or request.headers.get("x-railwatcher") != "1":
-                return JSONResponse({"detail": "Open Railwatcher directly to make changes"}, status_code=403)
+                return JSONResponse({"detail": "Open RailWatch directly to make changes"}, status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
