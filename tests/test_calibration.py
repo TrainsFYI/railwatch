@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+
 from railwatcher.config import ConfigStore, RailCalibration
 
 
@@ -28,9 +29,9 @@ def test_bad_coordinates_rejected():
 
 
 def test_passage_freezes_calibration_at_capture_time(tmp_path):
-    from railwatcher.store import Store
-    from railwatcher.passages import Passages
     from railwatcher.config import Settings
+    from railwatcher.passages import Passages
+    from railwatcher.store import Store
     store=Store(tmp_path);passages=Passages(store)
     settings=Settings(railway_calibration=proposal())
     identity=passages.start(settings,12,'model')

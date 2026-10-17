@@ -189,11 +189,24 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     def sightings(offset: int = 0):
         rows = store.list(50, max(0, offset))
         for row in rows:
-            row["manual_review"] = bool(json.loads(row["metadata"]).get("manual_review"))
+            metadata = json.loads(row["metadata"])
+            row["manual_review"] = bool(metadata.get("manual_review"))
+            row["review_status"] = metadata.get("user_review", {}).get("decision") or (
+                "confirmed" if row["manual_review"] else "required" if row["confidence"] < .8 else "not_required"
+            )
             row.pop("metadata")
             row["video_url"] = f"/api/sightings/{row['id']}/video" if row["filename"] else None
             row.pop("filename")
         return rows
+
+    @app.post("/api/sightings/{event_id}/review")
+    async def review_sighting(event_id: str, request: Request):
+        body = await request.json()
+        if not isinstance(body, dict) or body.get("decision") not in {"confirmed", "dismissed"}:
+            raise HTTPException(422, "Choose confirmed or dismissed")
+        if not store.review(event_id, body["decision"]):
+            raise HTTPException(404, "Detection not found")
+        return {"review_status": body["decision"]}
 
     @app.get("/api/sightings/{event_id}/video")
     def video(event_id: str):

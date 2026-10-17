@@ -71,6 +71,18 @@ class Store:
                 (*values.values(), event_id),
             )
 
+    def review(self, event_id: str, decision: str) -> bool:
+        if decision not in {"confirmed", "dismissed"}:
+            raise ValueError("Choose confirmed or dismissed")
+        with self.connect() as db:
+            row = db.execute("SELECT metadata FROM sightings WHERE id=?", (event_id,)).fetchone()
+            if row is None:
+                return False
+            metadata = json.loads(row["metadata"])
+            metadata["user_review"] = {"decision": decision, "reviewed_at": time.time()}
+            db.execute("UPDATE sightings SET metadata=? WHERE id=?", (json.dumps(metadata), event_id))
+        return True
+
     def list(self, limit=100, offset=0):
         with self.connect() as db:
             return [

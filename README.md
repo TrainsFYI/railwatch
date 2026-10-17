@@ -110,7 +110,7 @@ The browser smoke test launches a disposable local server, exercises the complet
 
 ## Recording behavior and limits
 
-The detector keeps 12 seconds of recent frames in RAM for event pre-roll, confirms three positive samples within five seconds, and records until 15 seconds after the last positive. Preview, inference and event clips use 960×540 at 10 fps; inference samples the latest frame independently, at most twice per second. In parallel, the camera feed is encoded at 640×360 and 5 fps into two-minute H.264 files, retained for up to 24 hours. The 350 kbit/s bitrate ceiling uses about 3.8 GB per day at the maximum rate. The **Review footage** page lets you play retained segments and select up to 15 minutes to save as a manually marked train sighting; it joins the normal history and upload queue. The current segment is finalized at each segment boundary, so the newest footage can take up to two minutes to appear. A gap in camera capture is not filled with fabricated footage.
+The detector keeps 12 seconds of recent frames in RAM for event pre-roll, confirms three positive samples within five seconds, and records until 15 seconds after the last positive. Preview, inference and event clips use 960×540 at 10 fps; inference samples the latest frame independently, at most twice per second. In parallel, the camera feed is encoded at 640×360 and 5 fps into two-minute H.264 files, retained for up to 24 hours. The 350 kbit/s bitrate ceiling uses about 3.8 GB per day at the maximum rate. The Live page shows recent events; use Detections to open individual recordings. The current segment is finalized at each segment boundary, so the newest footage can take up to two minutes to appear. A gap in camera capture is not filled with fabricated footage.
 
 Recordings longer than five minutes are split into clips with overlapping pre-roll. A stationary train can keep the detector active; this version detects train presence rather than estimating movement or counting individual trains. Dashboard totals count recording events, including interrupted attempts, not unique physical trains. Restart/disconnection closes the current recording where possible; footage while disconnected cannot be recovered.
 
@@ -120,19 +120,9 @@ Storage is a recording budget, with a conservative reserve for the next maximum-
 
 The wizard bundles Leaflet locally; satellite imagery and highlighted railways are online services. Imagery is supplied by Esri; rail tiles/data by OpenRailwayMap/OpenStreetMap, with attribution shown on the map. The default public rail tiles are for this development setup. Before public/commercial distribution, provide a permitted or self-hosted rail tile endpoint according to [OpenRailwayMap's usage terms](https://wiki.openstreetmap.org/wiki/OpenRailwayMap/API); default endpoints are in `railwatcher/static/app.js`. Manual coordinate entry continues to work without tiles. Browser geolocation generally needs HTTPS except on localhost.
 
-## Movement review
-
-**Review footage → Significant movement in tracked area** filters completed archive segments using the camera’s saved detection polygon (or the full frame if no polygon is set). A background worker indexes existing recordings oldest first and then new segments. Results persist across restarts, expire with the rolling archive, and are reanalysed when the camera source or polygon changes. The page shows analysed/pending/unavailable counts and refreshes automatically. **All footage** remains available while indexing runs. Select a segment and use **Jump to movement** to seek to candidate windows; the save-clip range is prefilled around the selected window. Saving remains an explicit manual train marking and uses the existing upload queue.
-
-The motion heuristic samples twice per second at 320×180, compensates uniform exposure changes, and requires at least 15% of pixels within the polygon to change over four consecutive samples spanning at least 1.8 seconds. This rejects minor swaying and brief flashes; strong wind can still trigger it. Vehicles, people, foliage, camera movement and shadows can trigger it. Small, slow or brief movement can be missed. These are movement candidates, not train detections or validated train boundaries. No movement detected is not proof of a clear track. Analysis failures are shown separately from quiet footage. Indexing does not create sightings or upload clips automatically.
-
 ## Highlightable landmarks
 
-In Camera settings, choose **Add landmark**, enter a label, and drag a box on the live image. Select a saved landmark to rename it or draw a replacement box. Remove unwanted landmarks and use **Save settings** to persist changes. Boxes use image-relative coordinates and appear on the live dashboard. Up to 32 landmarks can be saved. Landmarks annotate fixed features and define the regions used by the red-flash review filter.
-
-## Crossing-light review
-
-**Red flashes in landmarks** remains available for reviewing cached results, but its background indexing is paused. **Train model detections** is the default review filter. It examines the original archive frames, requiring at least three red pulses with intervening dark intervals and similar cadence. Jump buttons show the landmark label. **Significant movement** remains a separate option. Red-flash results persist, reanalyse when landmarks change, and index newest recordings first. These are crossing-activity candidates, not confirmed train detections. Tiny/distant lights, compression, occlusion, unusual flash cadence, or white/saturated lamps can cause missed events; other flashing red objects within a selected box can cause false matches. A real flashing example is needed to validate sensitivity for each camera.
+In Camera settings, choose **Add landmark**, enter a label, and drag a box on the live image. Select a saved landmark to rename it or draw a replacement box. Remove unwanted landmarks and use **Save settings** to persist changes. Boxes use image-relative coordinates and appear on the live dashboard. Up to 32 landmarks can be saved. Landmarks annotate fixed features in the camera image.
 
 ## Train detection and archive review
 
@@ -176,6 +166,13 @@ points, or explicitly choose the whole image. Drawing uses the camera's native
 aspect ratio so the saved outline stays aligned. Recalibrate when moving or
 zooming the camera.
 
-Desktop navigation provides Overview, Detections, Live feed, Footage, and
-Settings. On smaller screens these become a horizontal navigation bar. Existing
+Desktop navigation provides Live, Detections, and Settings. On smaller screens these become a horizontal navigation bar. Existing
 configured devices open their overview without repeating setup.
+
+
+Detections and the overview's five most recent events share a table. Select an
+entry to inspect its recording and details. Detections below 80% confidence show
+Needs review until the user confirms or dismisses them. Manual sightings count
+as confirmed. Review decisions are retained locally without rewriting the
+original capture confidence or upload history. Recordings that have expired
+remain visible as events, with an explanation that their video is unavailable.
