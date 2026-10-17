@@ -3,7 +3,20 @@ const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&'
 let config, step = 0, page = 'setup', map, marker, wedge, previewTimer, statusTimer, offset = 0;
 let sourceType = 'usb', locationChosen = false, detectionMask = [];
 let landmarks = [], selectedLandmark = '', landmarkDrag = null;
-const stepNames = ['Camera', 'Location', 'Account', 'Review'];
+// Keep the setup order aligned with the review summary and saveStep.
+const stepNames = ['Camera', 'Location', 'Rail landmarks', 'Train area', 'Account', 'Review'];
+let dashboardView = 'overview';
+function navigation(active) {
+  const sidebar = $('#app-sidebar');
+  sidebar.innerHTML = `<p class="nav-caption">${config.setup_complete ? 'WORKSPACE' : 'GETTING STARTED'}</p><nav>${(config.setup_complete ? [['overview','Overview'],['detections','Detections'],['live','Live feed'],['review','Footage'],['settings','Settings']] : [['setup','Camera setup']]).map(([id,label])=>`<button type="button" data-page="${id}" aria-current="${active===id?'page':'false'}">${label}</button>`).join('')}</nav><div class="sidebar-note"><strong>Your railway, connected.</strong><p>Camera processing runs on this device.</p></div>`;
+  sidebar.querySelectorAll('[data-page]').forEach(button=>button.onclick=()=>{
+    const target=button.dataset.page;
+    if(target==='settings')settingsPage();else if(target==='review')reviewPage();else if(target==='setup')setup(0);else dashboard(target);
+  });
+}
+function setupProgress(index) {
+  return `<ol class="steps" aria-label="Setup progress">${stepNames.map((name,i)=>`<li class="step ${i===index?'active':''}" ${i===index?'aria-current="step"':''}><b>${i<index?'✓':i+1}</b>${name}</li>`).join('')}</ol>`;
+}
 function updateThemeToggle() {
   const dark = document.documentElement.dataset.theme === 'dark';
   const button = $('#theme-toggle');
@@ -36,7 +49,7 @@ async function boot() {
     sourceType = config.source_type;
     detectionMask = config.detection_mask || [];
     if (config.setup_complete) { if (new URLSearchParams(location.search).has("footage")) reviewPage(); else dashboard(); }
-    else setup(0);
+    else { let resume=0; try { resume=Number(sessionStorage.getItem('railwatcher-setup-step'))||0; } catch {} setup(Number.isInteger(resume)?Math.min(5,Math.max(0,resume)):0); }
   } catch(e) {
     $('#app').innerHTML = `<section class="card"><h1>Railwatcher is unavailable</h1><p>${escapeHTML(e.message)}</p><button id="reload">Retry</button></section>`;
     $('#reload').onclick = boot;
@@ -116,12 +129,14 @@ function setupMaskEditor() {
   if (!canvas) return;
   canvas.addEventListener('click', event => {
     if ($('#camera-edit-mode')?.value === 'landmarks') return;
+    if (!$('#preview-image')?.naturalWidth || $('#preview-image').hidden) return toast('Wait for a camera picture before drawing the train area.');
     if (detectionMask.length >= 32) return toast('Detection areas can have up to 32 points.');
     const rect = canvas.getBoundingClientRect();
     detectionMask = [...detectionMask, [
       Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
       Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
     ]];
+    if($('#full-frame')) { $('#full-frame').checked=false; if(detectionMask.length>=3) $('#error').hidden=true; }
     drawMask();
   });
   $('#mask-undo').onclick = () => { detectionMask = detectionMask.slice(0, -1); drawMask(); };
@@ -179,7 +194,7 @@ function startPreview() {
   const image = $('#preview-image');
   if (!image) return;
   image.onload=()=>{
-    if((page==='calibration'||page==='settings') && image.naturalWidth && !document.fullscreenElement){
+    if(image.naturalWidth && !document.fullscreenElement){
       const viewer=image.closest('.preview');
       viewer.style.flex='none';viewer.style.minHeight='0';
       viewer.style.aspectRatio=`${image.naturalWidth} / ${image.naturalHeight}`;
@@ -207,30 +222,32 @@ function startPreview() {
   }; tick();
 }
 function setup(index) {
-  cleanup(); page = 'setup'; step = index;
-  const subtitles = ['Camera', 'Location', 'Upload settings', 'Review'];
-  const descriptions = ['Choose a video source and check its picture.', 'Set the camera position and the direction it faces.', 'Add the TrainsFYI upload details, if you have them.', 'Check these settings before enabling detection.'];
-  $('#app').innerHTML = `<div class="intro"><div><h1>${subtitles[step]}</h1><p>${descriptions[step]}</p></div></div><div class="steps">${stepNames.map((name,i) => `<div class="step ${i===step?'active':''}"><b>${i<step?'✓':i+1}</b>${name}</div>`).join('')}</div><div id="step-content"></div><div id="error" class="error-box" hidden></div><div class="actions"><button class="secondary" id="back">${step ? '← Back' : config.setup_complete ? '← Dashboard' : 'Back'}</button><span class="hint">${step===3?'The camera feed remains on this device.':'Changes are saved on this device.'}</span><button id="next">${step===3?'Start watching':'Continue'} &nbsp; →</button></div>`;
+  cleanup(); page = 'setup'; step = index; $('#app').dataset.view='';
+  navigation('setup');
+  try { sessionStorage.setItem('railwatcher-setup-step', String(index)); } catch {}
+  if(index===2) { calibrationPage(()=>setup(3), true); return; }
+  const subtitles = ['Connect your camera', 'Place your camera', 'Rail landmarks', 'Outline the train area', 'Connect your account', 'Ready to watch'];
+  const descriptions = ['Choose a video source, save the connection, and check the live picture.', 'Find the camera on the map, then aim its viewing cone toward the tracks.', '', 'Draw around the rails and the full space a passing train will occupy.', 'Optionally connect to TrainsFYI for private uploads.', 'Check your camera, rail landmarks, and detection area before starting.'];
+  $('#app').innerHTML = `<div class="intro"><div><h1>${subtitles[step]}</h1><p>${descriptions[step]}</p></div></div>${setupProgress(step)}<div id="step-content"></div><div id="error" class="error-box" hidden></div><div class="actions"><button class="secondary" id="back">${step ? '← Back' : config.setup_complete ? '← Dashboard' : 'Back'}</button><span class="hint">${step===5?'The live camera feed stays on this device.':'Changes are saved on this device.'}</span><button id="next">${step===5?'Start watching':'Continue'} &nbsp; →</button></div>`;
   $('#back').disabled = step===0 && !config.setup_complete;
   $('#back').onclick = () => step ? setup(step-1) : dashboard();
   $('#next').onclick = async () => {
     const button = $('#next'); button.disabled = true; $('#error').hidden = true;
-    try { await saveStep(); if (step===3) dashboard(); else setup(step+1); } catch(e) { error(e.message); } finally { if(button.isConnected) button.disabled = false; }
+    try { await saveStep(); if (step===5) dashboard(); else setup(step+1); } catch(e) { error(e.message); } finally { if(button.isConnected) button.disabled = false; }
   };
-  [cameraStep, locationStep, accountStep, reviewStep][step]();
+  [cameraStep, locationStep, null, areaStep, accountStep, reviewStep][step]();
 }
 function cameraStep() {
-  $('#step-content').innerHTML = `<div class="setup-grid"><section class="card"><h2>Video source</h2><p>Select a USB camera or enter the address of a network stream.</p><label for="name">Camera name</label><input id="name" maxlength="80" value="${escapeHTML(config.name)}" placeholder="e.g. West junction"><div class="camera-choices"><button class="camera-choice" id="usb"><span class="camera-symbol">USB</span>USB camera<span>Connected to this device</span></button><button class="camera-choice" id="rtsp"><span class="camera-symbol">RTSP</span>Network stream<span>RTSP address on your network</span></button></div><div id="camera-input"></div><button class="secondary" id="test-camera" style="margin-top:20px">Save camera settings</button><div class="note">The live camera feed is processed on this device.</div></section>${previewHTML()}</div>`;
+  $('#step-content').innerHTML = `<div class="setup-grid"><section class="card"><h2>Video source</h2><p>Select a USB camera or enter the address of a network stream.</p><label for="name">Camera name</label><input id="name" maxlength="80" value="${escapeHTML(config.name)}" placeholder="e.g. West junction"><div class="camera-choices"><button class="camera-choice" id="usb"><span class="camera-symbol">USB</span>USB camera<span>Connected to this device</span></button><button class="camera-choice" id="rtsp"><span class="camera-symbol">RTSP</span>Network stream<span>RTSP address on your network</span></button></div><div id="camera-input"></div><button class="secondary" id="test-camera" style="margin-top:20px">Save camera settings</button><div class="note">The live camera feed is processed on this device.</div></section>${previewHTML('',false)}</div>`;
   $('#usb').onclick = () => cameraInput('usb'); $('#rtsp').onclick = () => cameraInput('rtsp'); cameraInput(sourceType);
   $('#test-camera').onclick = async () => { const button = $('#test-camera'); button.disabled = true; try { await saveCamera(); startPreview(); toast('Camera settings saved.'); } catch(e) { error(e.message); } finally {button.disabled = false;} };
-  setupMaskEditor();
   if (config.setup_complete || config.source_type==='rtsp') startPreview();
 }
 async function cameraInput(type) {
   sourceType = type; $('#usb').classList.toggle('selected', type==='usb'); $('#rtsp').classList.toggle('selected', type==='rtsp');
   $('#usb').setAttribute('aria-pressed', type==='usb'); $('#rtsp').setAttribute('aria-pressed', type==='rtsp');
   if(type==='rtsp') {
-    $('#camera-input').innerHTML = `<label for="source">RTSP stream URL</label><input id="source" type="text" autocomplete="off" spellcheck="false" placeholder="rtsp://username:password@192.168.1.20:554/stream"><p class="hint">${config.source_type==='rtsp' ? `Saved camera: ${escapeHTML(config.source_label)}. Leave blank to keep it.` : 'Find this address in your camera’s settings. Credentials are stored only on the Pi.'}</p>`;
+    $('#camera-input').innerHTML = `<label for="source">RTSP stream URL</label><input id="source" type="text" autocomplete="off" spellcheck="false" placeholder="rtsp://username:password@192.168.1.20:554/stream"><p class="hint">${config.source_type==='rtsp' ? `Saved camera: ${escapeHTML(config.source_label)}. Leave blank to keep it.` : 'Find this address in your camera’s settings. Credentials are stored only on this device.'}</p>`;
   } else {
     $('#camera-input').innerHTML = `<label for="source">Camera device</label><input id="source" list="devices" value="${escapeHTML(config.source_type==='usb'?config.source:'/dev/video0')}"><datalist id="devices"></datalist><p class="hint" id="device-hint">Checking for connected cameras…</p>`;
     try { const devices = await api('devices'); if(sourceType!=='usb' || !$('#devices')) return; $('#devices').innerHTML = devices.map(d => `<option value="${escapeHTML(d.path)}">${escapeHTML(d.label)}</option>`).join(''); $('#device-hint').textContent = devices.length ? `${devices.length} video device(s) found. Choose your webcam’s capture device.` : 'No USB cameras detected. Plug one in or enter its /dev/video path.'; } catch(e) {error(e.message);}
@@ -244,9 +261,8 @@ async function saveCamera() {
 }
 function locationStep() {
   locationChosen = config.latitude !== null && config.longitude !== null;
-  $('#step-content').innerHTML = `<div class="setup-grid"><section class="card"><h2>Camera location</h2><button class="secondary" id="setup-rail-calibration">Match railway points (optional)</button><p>Place the marker on the map or enter coordinates. The overlay shows mapped railway lines.</p><div class="inline-inputs"><div><label for="latitude">Latitude</label><input id="latitude" type="number" step="any" min="-85" max="85" placeholder="43.6426" value="${config.latitude??''}"></div><div><label for="longitude">Longitude</label><input id="longitude" type="number" step="any" min="-180" max="180" placeholder="-79.3871" value="${config.longitude??''}"></div></div><div class="map-controls"><button class="secondary" id="go-coordinates">Show coordinates</button><button class="secondary" id="locate">Use my location</button></div><label class="bearing-label" for="bearing"><span>Camera direction</span><span id="bearing-value">${config.bearing}° · ${compass(config.bearing)}</span></label><input id="bearing" type="range" min="0" max="359" value="${config.bearing}"><p class="hint">0° is north, 90° is east. Point the cone where your camera looks.</p><label class="bearing-label" for="fov"><span>Field of view</span><span id="fov-value">${config.field_of_view}°</span></label><input id="fov" type="range" min="10" max="160" value="${config.field_of_view}"><div class="note">Satellite imagery and rail overlays need an internet connection. You can also enter coordinates manually.</div></section><section class="card"><div id="map"></div><p class="map-note" id="map-message">Click the map to place the camera. Drag to adjust.</p></section></div>`;
+  $('#step-content').innerHTML = `<div class="setup-grid"><section class="card"><h2>Camera location</h2><p>Place the marker on the map or enter coordinates. The overlay shows mapped railway lines.</p><div class="inline-inputs"><div><label for="latitude">Latitude</label><input id="latitude" type="number" step="any" min="-85" max="85" placeholder="43.6426" value="${config.latitude??''}"></div><div><label for="longitude">Longitude</label><input id="longitude" type="number" step="any" min="-180" max="180" placeholder="-79.3871" value="${config.longitude??''}"></div></div><div class="map-controls"><button class="secondary" id="go-coordinates">Show coordinates</button><button class="secondary" id="locate">Use my location</button></div><label class="bearing-label" for="bearing"><span>Camera direction</span><span id="bearing-value">${config.bearing}° · ${compass(config.bearing)}</span></label><input id="bearing" type="range" min="0" max="359" value="${config.bearing}"><p class="hint">0° is north, 90° is east. Point the cone where your camera looks.</p><label class="bearing-label" for="fov"><span>Field of view</span><span id="fov-value">${config.field_of_view}°</span></label><input id="fov" type="range" min="10" max="160" value="${config.field_of_view}"><div class="note">Satellite imagery and rail overlays need an internet connection. You can also enter coordinates manually.</div></section><section class="card"><div id="map"></div><p class="map-note" id="map-message">Click the map to place the camera. Drag to adjust.</p></section></div>`;
   mountMap(); bindLocationControls();
-  $('#setup-rail-calibration').onclick=async()=>{try{await saveStep();calibrationPage(()=>setup(1));}catch(e){error(e.message);}};
 }
 function mountMap() {
   if(window.L) {
@@ -284,22 +300,33 @@ function drawCone() {
   for(let angle=b-f/2;angle<=b+f/2;angle+=f/20){const r=angle*Math.PI/180;points.push([p.lat+Math.cos(r)*.0012,p.lng+Math.sin(r)*.0012/Math.cos(p.lat*Math.PI/180)]);}
   wedge=L.polygon(points,{color:'#d6eb94',weight:2,fillColor:'#d6eb94',fillOpacity:.3,interactive:false}).addTo(map);
 }
+function areaStep() {
+  $('#step-content').innerHTML = `<div class="setup-grid"><section class="card"><h2>Keep the focus on trains</h2><p>Click around the outside of the visible tracks to draw a closed area. Include the height and width of a passing train, from where it enters the picture to where it leaves.</p><ol class="area-guide"><li>Start beside the rail at the near end.</li><li>Follow the track toward the far end.</li><li>Come back along the other side, leaving room above the rails for the train.</li></ol><p>Use at least three points. Undo the last point to adjust your outline.</p><label><input type="checkbox" id="full-frame" > Use the whole image instead</label><p class="hint">Choose this only when the whole camera view is relevant to train detection.</p></section>${previewHTML()}</div>`;
+  setupMaskEditor(); startPreview();
+  $('#full-frame').onchange=()=>{if($('#full-frame').checked){detectionMask=[];drawMask();}};
+}
 function accountStep() {
-  $('#step-content').innerHTML=`<div class="setup-grid"><section class="card" id="night-review-settings"><h2>Night review</h2><label><input type="checkbox" id="night-review-enabled" ${config.night_review_enabled?'checked':''}> Retain nighttime footage for local review</label><p class="hint">Keep extra footage outside the rolling 24-hour archive. This does not automatically upload candidates. Review footage → All footage includes retained recordings.</p><label for="night-review-timezone">Timezone</label><input id="night-review-timezone" value="${escapeHTML(config.night_review_timezone||'UTC')}" placeholder="America/Toronto"><div class="inline-inputs"><div><label for="night-start">Start hour (0–23)</label><input id="night-start" type="number" min="0" max="23" value="${config.night_review_start_hour??19}"></div><div><label for="night-end">End hour (0–23)</label><input id="night-end" type="number" min="0" max="23" value="${config.night_review_end_hour??7}"></div></div><div class="inline-inputs"><div><label for="night-hours">Retention (hours)</label><input id="night-hours" type="number" min="24" max="168" value="${config.night_review_hours??72}"></div><div><label for="night-gb">Extra storage budget (GB)</label><input id="night-gb" type="number" min="0.25" max="20" step="0.25" value="${config.night_review_gb??2}"></div></div><p class="hint">Oldest review footage expires when either limit is reached. Pending uploads are preserved independently.</p></section>
-    <section class="card"><h2>TrainsFYI account</h2><p>Authorize this camera in your browser. Confirmed train passages upload automatically; footage stays private.</p><button type="button" id="pair-device">Connect to TrainsFYI</button><div id="device-pairing" aria-live="polite"></div><div hidden><input id="api-key"><input id="clear-key" type="checkbox"><input id="upload-url" value="${escapeHTML(config.upload_url)}"></div></section><section class="setup-aside"><h3>What is uploaded</h3><p>Only recorded train clips and camera location details are sent. Live video stays on this device.</p><p>If the network is unavailable, clips remain queued here for a later retry.</p></section></div>`;
+  $('#step-content').innerHTML=`<div class="setup-grid"><section class="card"><h2>TrainsFYI account</h2><p>Authorize this camera in your browser. Confirmed train passages upload automatically; footage stays private.</p><button type="button" id="pair-device">Connect to TrainsFYI</button><div id="device-pairing" aria-live="polite"></div><div hidden><input id="api-key"><input id="clear-key" type="checkbox"><input id="upload-url" value="${escapeHTML(config.upload_url)}"></div></section><section class="setup-aside"><h3>What is uploaded</h3><p>Only recorded train clips and camera location details are sent. Live video stays on this device.</p><p>If the network is unavailable, clips remain queued here for a later retry.</p></section></div>`;
   bindDevicePairing();
 }
 function reviewStep() {
-  $('#step-content').innerHTML=`<div class="setup-grid"><section class="card"><h2>Review settings</h2>${[['Name',config.name],['Camera',config.source_label],['Position',`${config.latitude?.toFixed(6)}, ${config.longitude?.toFixed(6)}`],['Direction',`${config.bearing}° ${compass(config.bearing)} · ${config.field_of_view}° view`],['TrainsFYI','Manage account connection in Settings']].map(([a,b])=>`<div class="review-item"><span>${a}</span><strong>${escapeHTML(b)}</strong></div>`).join('')}<div class="inline-inputs"><div><label for="confidence">Detection confidence</label><input id="confidence" type="number" min="0.1" max="0.99" step="0.05" value="${config.confidence}"></div><div><label for="storage">Recording storage (GB)</label><input id="storage" type="number" min="1" max="1000" step="0.25" value="${config.storage_gb}"></div></div><p class="hint">${config.pre_roll}s before detection · ${config.post_roll}s after the last detection. Long trains are saved in consecutive clips.</p><div id="model-note" class="note">Checking the local detector…</div></section>${previewHTML()}</div>`;
-  setupMaskEditor(); startPreview(); api('status').then(s=>{const note=$('#model-note');if(!note)return;note.textContent=s.model_available?'Train model installed. Detection runs continuously. Use infrared or low-light equipment at night.':'Train model is not installed. Add models/train.onnx to enable detection.';}).catch(e=>error(e.message));
+  $('#step-content').innerHTML=`<div class="setup-grid"><section class="card"><h2>Review settings</h2>${[['Name',config.name],['Camera',config.source_label],['Position',`${config.latitude?.toFixed(6)}, ${config.longitude?.toFixed(6)}`],['Direction',`${config.bearing}° ${compass(config.bearing)} · ${config.field_of_view}° view`],['Rail landmarks',`${config.railway_calibration?.points?.length || 0} matched points`],['Train area',detectionMask.length ? `${detectionMask.length}-point outline` : 'Whole image'],['TrainsFYI','Manage account connection in Settings']].map(([a,b])=>`<div class="review-item"><span>${a}</span><strong>${escapeHTML(b)}</strong></div>`).join('')}<div class="inline-inputs"><div><label for="confidence">Detection confidence</label><input id="confidence" type="number" min="0.1" max="0.99" step="0.05" value="${config.confidence}"></div><div><label for="storage">Recording storage (GB)</label><input id="storage" type="number" min="1" max="1000" step="0.25" value="${config.storage_gb}"></div></div><p class="hint">${config.pre_roll}s before detection · ${config.post_roll}s after the last detection. Long trains are saved in consecutive clips.</p><div id="model-note" class="note">Checking the local detector…</div></section>${previewHTML('',false)}</div>`;
+  startPreview(); api('status').then(s=>{const note=$('#model-note');if(!note)return;note.textContent=s.model_available?'Train model installed. Detection runs continuously. Use infrared or low-light equipment at night.':'Train model is not installed. Add models/train.onnx to enable detection.';}).catch(e=>error(e.message));
 }
 async function saveStep() {
   if(step===0) return saveCamera();
   if(step===1) {const [latitude,longitude]=coordinates(); config=await api('config','PATCH',{latitude,longitude,bearing:+$('#bearing').value,field_of_view:+$('#fov').value});}
-  if(step===2) config=await api('config','PATCH',{api_key:$('#clear-key').checked?'':($('#api-key').value.trim()||null),upload_url:$('#upload-url').value.trim()});
-  if(step===3) config=await api('config','PATCH',{confidence:+$('#confidence').value,storage_gb:+$('#storage').value,setup_complete:true,enabled:true});
+  if(step===3) {
+    if(!$('#full-frame').checked && detectionMask.length<3) throw new Error('Outline the train area with at least three points, or choose the whole image.');
+    config=await api('config','PATCH',{detection_mask:detectionMask});
+  }
+  if(step===4) config=await api('config','PATCH',{api_key:$('#clear-key').checked?'':($('#api-key').value.trim()||null),upload_url:$('#upload-url').value.trim()});
+  if(step===5 && (config.railway_calibration?.points?.length || 0)<2) throw new Error('Match two rail landmarks before starting. Go back to the Rail landmarks step.');
+  if(step===5) config=await api('config','PATCH',{confidence:+$('#confidence').value,storage_gb:+$('#storage').value,setup_complete:true,enabled:true});
 }
-function dashboard() {
+function dashboard(view = 'overview') {
+  dashboardView=typeof view==='string'?view:'overview'; navigation(dashboardView);
+  $('#app').dataset.view=dashboardView;
   cleanup(); page='dashboard';offset=0;
   $('#app').innerHTML=`<div class="dashboard-layout"><aside class="dashboard-sidebar">${previewHTML('sidebar-preview',false)}<section class="card event-panel"><div class="card-head"><div><h2>Historical events</h2><p>Train activity caught by this camera</p></div><span class="event-count" id="event-count">—</span></div><div id="sightings" class="event-list"></div><div class="event-pagination"><button id="previous" class="text-button" hidden>← Newer</button><button id="more" class="text-button" hidden>Older →</button></div></section></aside><section class="dashboard-main"><div class="intro"><div><h1>${escapeHTML(config.name)}</h1><p>${config.latitude === null ? 'Location not set' : `${config.latitude.toFixed(5)}, ${config.longitude.toFixed(5)}`} · Facing ${config.bearing}° ${compass(config.bearing)}</p></div><div class="dashboard-actions"><button class="secondary" id="review-footage">Review footage</button><button class="secondary" id="settings">Camera settings</button></div></div><div class="stats"><div class="stat"><div class="stat-label">Sightings</div><div class="stat-value" id="stat-total">—</div><div class="stat-detail">recorded events</div></div><div class="stat"><div class="stat-label">Uploaded</div><div class="stat-value" id="stat-uploaded">—</div><div class="stat-detail">accepted by server</div></div><div class="stat"><div class="stat-label">Queued</div><div class="stat-value" id="stat-pending">—</div><div class="stat-detail">stored on device</div></div><div class="stat"><div class="stat-label">Clip storage</div><div class="stat-value" id="stat-storage">—</div><div class="stat-detail">of ${config.storage_gb} GB limit</div></div></div><section class="card system-card"><div class="card-head"><h2>System status</h2><span class="watch-state" id="watch-badge"><span class="watch-indicator" aria-hidden="true"></span>Starting</span></div><div class="status-list"><div class="status-row"><span>Camera</span><strong id="camera-status">—</strong></div><div class="status-row"><span>Detection</span><strong id="detector-status">—</strong></div><div class="status-row"><span>Footage archive</span><strong id="buffer-status">—</strong></div><div class="status-row"><span>TrainsFYI</span><strong id="upload-status">—</strong></div><div class="status-row"><span>Facing</span><strong>${config.bearing}° ${compass(config.bearing)}</strong></div></div><div id="storage-error" class="error-box" hidden></div><button class="secondary" id="toggle" style="width:100%;margin-top:16px">${config.enabled?'Pause detection':'Start detection'}</button></section></section></div>`;
   $('#settings').onclick=()=>settingsPage();$('#review-footage').onclick=reviewPage;
@@ -312,7 +339,7 @@ function localDateTime(epoch) {
   return local.toISOString().slice(0,19);
 }
 function reviewPage() {
-  cleanup(); page='review';
+  cleanup(); page='review'; navigation('review'); $('#app').dataset.view='';
   $('#app').innerHTML=`<div class="intro"><div><h1>Review footage</h1><p>Find model-detected trains inside your detection area and review their passages.</p></div><button class="secondary" id="back-review">Back to dashboard</button></div><div class="review-layout"><section class="card review-player"><div class="archive-view"><video id="archive-video" controls playsinline preload="metadata"></video><svg class="archive-area" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Tracked detection area"><polygon points="${detectionMask.map(([x,y])=>`${x*100},${y*100}`).join(' ')}"></polygon>${(config.landmarks||[]).map(item=>`<rect x="${item.box[0]*100}" y="${item.box[1]*100}" width="${(item.box[2]-item.box[0])*100}" height="${(item.box[3]-item.box[1])*100}" fill="none" stroke="#57dbff" stroke-width="0.3"><title>${escapeHTML(item.label)}</title></rect>`).join('')}</svg></div><label for="activity-filter">Look for</label><select id="activity-filter"><option value="trains">Train model detections</option><option value="red_flashes">Red flashes in landmarks (paused)</option><option value="movement">Significant movement</option></select><label for="movement-filter">Show footage</label><select id="movement-filter"><option value="motion">Significant movement in tracked area</option><option value="all">All footage</option><option value="quiet">No significant movement detected</option><option value="pending">Not analysed yet</option><option value="error">Analysis unavailable</option></select><p class="hint" id="activity-hint">Requires at least 15% of the tracked area to change for about two seconds. Candidates can include vehicles, people, foliage and shadows. They are not confirmed trains. No significant movement detected does not prove an empty track.</p><div class="review-note" id="review-note" role="status">Loading available footage…</div><div id="motion-windows"></div><div class="review-list" id="review-list"></div></section><section class="card mark-card"><h2>Mark a train</h2><p>Select the start and end of the train’s passage. Railwatcher saves it as a manual sighting for local review. Select Submit to TrainsFYI to upload it explicitly.</p><form id="mark-form" hidden><label for="mark-start">Start time</label><input id="mark-start" type="datetime-local" step="1" required><label for="mark-end">End time</label><input id="mark-end" type="datetime-local" step="1" required><button id="mark-submit" type="submit">Mark train and save clip</button></form><p class="hint">Selected footage must be within the available archive and shorter than 15 minutes.</p></section></div>`;
   $('#back-review').onclick=dashboard;
   $('#activity-filter').value='trains';
@@ -400,7 +427,7 @@ function reviewPage() {
 let settingsSection = 'camera';
 function settingsPage(section = settingsSection) {
   settingsSection=typeof section==='string'?section:settingsSection;
-  cleanup(); page='settings'; locationChosen=config.latitude!==null&&config.longitude!==null; sourceType=config.source_type;
+  cleanup(); page='settings'; navigation('settings'); $('#app').dataset.view=''; locationChosen=config.latitude!==null&&config.longitude!==null; sourceType=config.source_type;
   detectionMask = (config.detection_mask || []).map(point => [...point]);
   landmarks = (config.landmarks || []).map(item=>({...item,box:[...item.box]}));
   selectedLandmark=landmarks[0]?.id || ''; landmarkDrag=null;
@@ -543,20 +570,21 @@ function bindDevicePairing() {
 
 
 let railPoints = [], railDraft = null;
-function calibrationPage(returnTo = settingsPage) {
+function calibrationPage(returnTo = settingsPage, onboarding = false) {
   if(!window.L) return toast('The map could not load. Check your connection and try again.');
-  cleanup(); page='calibration';
+  cleanup(); page='calibration'; $('#app').dataset.view=''; navigation(onboarding?'setup':'settings');
   const stored=config.railway_calibration_draft?.length?config.railway_calibration_draft:(config.railway_calibration?.points || []);
   railPoints=stored.map(point=>({...point,image:[...point.image]}));
   railDraft=railPoints.length<2?{index:railPoints.length}:null;
   let busy=false, selection='image', markers=[];
-  $('#app').innerHTML=`<div id="calibration-workspace"><div class="intro"><div><h1>Match railway points</h1><p>Match the same fixed spot on the rail in the camera image and map. Save each point, then repeat farther along the same straight rail.</p></div><button class="secondary" id="calibration-back">Back to settings</button></div>
+  $('#app').innerHTML=`<div id="calibration-workspace">${onboarding?setupProgress(2):''}<div class="intro"><div><h1>Match two rail landmarks</h1><p>Choose two recognizable spots on the same straight rail, such as a crossing or a track joint. Mark each spot in the live image and at its matching railway location on the map. Keep A and B well apart.</p></div><button class="secondary" id="calibration-back">${onboarding?'← Back to location':'Back to settings'}</button></div>
     <section class="card rail-progress"><div id="rail-saved" aria-live="polite"></div><button class="secondary" id="rail-third">Add point C (optional)</button><button class="text-button" id="rail-reset">Camera moved / clear all points</button></section>
     <section class="card rail-guidance"><h2 id="rail-instruction"></h2><div class="rail-steps"><button class="secondary" id="rail-select-image">1. Choose camera point</button><button class="secondary" id="rail-select-map">2. Choose matching map point</button></div><p id="rail-feedback" role="status"></p></section>
     <div class="settings-grid">${previewHTML('calibration',false)}<section class="card"><h3>Matching map location</h3><div id="map" style="height:420px"></div><p>Click the same spot on the same rail. You can drag the selected map pin to adjust it.</p></section></div>
     <p>Two saved pairs establish the rail axis. A third pair can support future speed calibration. Recalibrate after moving or zooming the camera.</p>
     <div class="rail-save-bar"><div id="error" class="error-box" hidden></div><span id="rail-summary" aria-live="polite"></span><button id="rail-save-point">Save point A</button><button id="rail-save" class="secondary">Apply calibration</button></div></div>`;
-  $('#calibration-back').onclick=returnTo;
+  $('#calibration-back').onclick=onboarding?()=>setup(1):returnTo;
+  if(onboarding) $('#rail-save').textContent='Save landmarks & continue';
   map=L.map('map').setView([config.latitude??43.65,config.longitude??-79.38],18);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery © Esri',maxZoom:20}).addTo(map);
   L.tileLayer('https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png',{attribution:'© OpenRailwayMap, © OpenStreetMap contributors',maxZoom:19}).addTo(map);
@@ -594,6 +622,7 @@ function calibrationPage(returnTo = settingsPage) {
   };
   $('#mask-canvas').onclick=event=>{
     if(busy||!railDraft||selection!=='image')return;
+    if(!$('#preview-image')?.naturalWidth || $('#preview-image').hidden) return toast('Wait for a camera picture before marking a rail landmark.');
     const rect=event.currentTarget.getBoundingClientRect();
     railDraft.image=[Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height))];
     selection='map';refresh();

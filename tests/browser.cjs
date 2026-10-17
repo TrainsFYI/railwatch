@@ -47,12 +47,53 @@ async function main() {
     await page.locator('#bearing').fill('135');
     await page.screenshot({path:'artifacts/location-desktop.png',fullPage:true});
     await page.getByRole('button',{name:/Continue/}).click();
+    await page.getByRole('heading',{name:'Match two rail landmarks'}).waitFor();
+    assert.equal(await page.locator('.step[aria-current="step"]').textContent(),'3Rail landmarks');
+    assert.equal(await page.getByRole('button',{name:'Save landmarks & continue'}).isDisabled(),true);
+    await page.route('**/api/preview?*',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="gray"/></svg>'}));
+    await page.waitForFunction(()=>document.querySelector('#preview-image').naturalWidth===400);
+    async function onboardingPair(x) {
+      await page.locator('#mask-canvas').click({position:{x:100+x*200,y:100}});
+      await page.locator('#map').click({position:{x:150+x*250,y:210}});
+    }
+    await onboardingPair(0);
+    await page.getByRole('button',{name:'Save point A',exact:true}).click();
+    await page.getByText('Point A · Saved',{exact:true}).waitFor();
+    await page.reload();
+    await page.getByText('Point A · Saved',{exact:true}).waitFor();
+    await page.waitForFunction(()=>document.querySelector('#preview-image').naturalWidth===400);
+    await onboardingPair(1);
+    await page.getByRole('button',{name:'Save point B',exact:true}).click();
+    await page.getByText('Point B · Saved',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Save landmarks & continue'}).click();
+    await page.getByRole('heading',{name:'Outline the train area'}).waitFor();
+    await page.getByLabel('Use the whole image instead').uncheck();
+    await page.getByRole('button',{name:/Continue/}).click();
+    await page.getByText('Outline the train area with at least three points, or choose the whole image.').waitFor();
+    await page.waitForFunction(()=>document.querySelector('#preview-image').naturalWidth===400);
+    for(const [x,y] of [[.1,.2],[.9,.2],[.8,.8],[.2,.8]]) {
+      const box=await page.locator('#mask-canvas').boundingBox();
+      await page.locator('#mask-canvas').click({position:{x:box.width*x,y:box.height*y}});
+    }
+    await page.screenshot({path:'artifacts/train-area-desktop.png',fullPage:true});
+    await page.getByRole('button',{name:/Continue/}).click();
     await page.getByRole('button',{name:'Connect to TrainsFYI'}).waitFor();
     await page.getByRole('button',{name:/Continue/}).click();
     await page.getByText(/Train model is not installed/).waitFor();
     await page.getByRole('button',{name:/Start watching/}).click();
     await page.getByRole('heading',{name:'West junction'}).waitFor();
     await page.getByText('No sightings recorded').waitFor();
+    const onboarded=await page.request.get(`${base}/api/config`).then(r=>r.json());
+    assert.equal(onboarded.railway_calibration.points.length,2);
+    assert.equal(onboarded.detection_mask.length,4);
+    await page.locator('#app-sidebar').getByRole('button',{name:'Detections',exact:true}).click();
+    await page.getByText('No sightings recorded').waitFor();
+    assert.equal(await page.locator('.sidebar-preview').isVisible(),false);
+    await page.locator('#app-sidebar').getByRole('button',{name:'Live feed',exact:true}).click();
+    await page.getByRole('heading',{name:'Live camera',exact:true}).waitFor();
+    assert.equal(await page.locator('.event-panel').isVisible(),false);
+    await page.locator('#app-sidebar').getByRole('button',{name:'Overview',exact:true}).click();
+    await page.unroute('**/api/preview?*');
     await page.getByRole('button',{name:'Pause detection'}).click();
     await page.getByRole('button',{name:'Start detection'}).waitFor();
     await page.screenshot({path:'artifacts/dashboard-desktop.png',fullPage:true});
@@ -121,7 +162,9 @@ async function main() {
     assert.equal(await page.getByLabel('RTSP stream URL').getAttribute('type'),'text');
     await page.getByRole('tab',{name:'Railway calibration',exact:true}).click();
     await page.getByRole('button',{name:'Match railway points',exact:true}).click();
-    await page.getByRole('heading',{name:'Match railway points',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Match two rail landmarks',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Camera moved / clear all points',exact:true}).click();
+    await page.getByText('No saved points yet. Start with point A below.').waitFor();
     const image=page.locator('#mask-canvas');
     // A synthetic visible preview makes the image coordinate contract testable.
     await page.route('**/api/preview?*',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="gray"/></svg>'}));

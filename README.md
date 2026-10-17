@@ -160,3 +160,22 @@ review budget. Review footage → All footage includes these recordings, labeled
 historical footage. Retention does not confirm a train and does not enqueue an
 automatic upload. Disabling collection stops new retention; existing review
 recordings expire according to the configured limits.
+
+
+### Camera setup and navigation
+
+The setup guide walks through the camera connection, camera position and viewing
+cone, two matching rail landmarks, the train detection area, optional account
+connection, and a final review. Choose fixed spots on the same straight rail for
+landmarks A and B, then mark each spot in both the live image and satellite map.
+Each matched pair is saved locally; reloading the same browser tab resumes setup.
+The matched points establish the rail axis; speed still requires verification.
+
+Outline the full space a train occupies in the picture with at least three
+points, or explicitly choose the whole image. Drawing uses the camera's native
+aspect ratio so the saved outline stays aligned. Recalibrate when moving or
+zooming the camera.
+
+Desktop navigation provides Overview, Detections, Live feed, Footage, and
+Settings. On smaller screens these become a horizontal navigation bar. Existing
+configured devices open their overview without repeating setup.
