@@ -443,8 +443,15 @@ async function settingsSourceField() {
 let visibleSightings = [];
 const reviewLabel = row => ({required:'Needs review',confirmed:'Confirmed',dismissed:'Not a train',not_required:'—'}[row.review_status] || '—');
 const eventDuration = row => row.ended ? `${Math.max(0,Math.round(row.ended-row.started))}s` : 'Recording…';
+function detectionDate(stamp, now = new Date()) {
+  const date = new Date(stamp * 1000);
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+  const day = sameDay(date, now) ? 'Today' : sameDay(date, yesterday) ? 'Yesterday' : date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  return `${day} at ${date.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true })}`;
+}
 function eventTable(rows) {
-  return `<div class="event-table-wrap"><table class="event-table"><thead><tr><th scope="col">Detected</th><th scope="col">Duration</th><th scope="col">Confidence</th><th scope="col">Review</th><th scope="col">Upload</th><th scope="col"><span class="sr-only">Details</span></th></tr></thead><tbody>${rows.map(row=>`<tr data-event-id="${escapeHTML(row.id)}"><td><button type="button" class="event-open" data-event-id="${escapeHTML(row.id)}">${escapeHTML(new Date(row.started*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}))}</button></td><td>${eventDuration(row)}</td><td>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</td><td>${row.review_status==='not_required'?'<span class="muted">—</span>':`<span class="review-chip ${escapeHTML(row.review_status)}">${reviewLabel(row)}</span>`}</td><td><span class="badge ${escapeHTML(row.status)}">${row.status==='pending'?'Queued':escapeHTML(row.status)}</span></td><td aria-hidden="true">↗</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="event-table-wrap"><table class="event-table"><thead><tr><th scope="col">Detected</th><th scope="col">Duration</th><th scope="col">Confidence</th><th scope="col">Review</th><th scope="col">Upload</th><th scope="col"><span class="sr-only">Details</span></th></tr></thead><tbody>${rows.map(row=>`<tr data-event-id="${escapeHTML(row.id)}"><td><button type="button" class="event-open" data-event-id="${escapeHTML(row.id)}">${escapeHTML(detectionDate(row.started))}</button></td><td>${eventDuration(row)}</td><td>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</td><td>${row.review_status==='not_required'?'<span class="muted">—</span>':`<span class="review-chip ${escapeHTML(row.review_status)}">${reviewLabel(row)}</span>`}</td><td><span class="badge ${escapeHTML(row.status)}">${row.status==='pending'?'Queued':escapeHTML(row.status)}</span></td><td aria-hidden="true">↗</td></tr>`).join('')}</tbody></table></div>`;
 }
 async function refreshSightings() {
   const rows=await api(`sightings?offset=${offset}`);if(page!=='dashboard')return;
@@ -461,18 +468,78 @@ function openDetection(id) {
   dialog.querySelector('h2').textContent='Detection details';
   let detail=$('#detection-detail');
   if(!detail){detail=document.createElement('div');detail.id='detection-detail';dialog.querySelector('.dialog-head').after(detail);}
-  detail.innerHTML=`<p class="detail-time">${escapeHTML(new Date(row.started*1000).toLocaleString())}</p><dl class="detection-facts"><div><dt>Duration</dt><dd>${eventDuration(row)}</dd></div><div><dt>Confidence</dt><dd>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</dd></div><div><dt>Upload</dt><dd>${row.status==='pending'?'Queued':escapeHTML(row.status)}</dd></div></dl>${row.review_status==='required'?'<div class="review-notice"><span class="review-chip required">Needs review</span><p>Confidence is below 80%. Watch the clip and confirm whether this is a train.</p></div>':row.review_status!=='not_required'?`<p><span class="review-chip ${escapeHTML(row.review_status)}">${reviewLabel(row)}</span></p>`:''}${row.error?`<p class="error">${escapeHTML(row.error)}</p>`:''}${!row.video_url?'<p class="clip-unavailable">This recording is no longer available on this device.</p>':''}<div id="detail-feedback" role="status"></div><div class="detection-actions">${row.video_url?'<button id="confirm-detection" type="button">Confirm train</button><button id="dismiss-detection" type="button" class="secondary">Not a train</button>':''}${row.status==='pending'&&row.attempts?'<button id="retry-detection" type="button" class="secondary">Retry upload</button>':''}</div>`;
+  detail.innerHTML=`<p class="detail-time">${escapeHTML(detectionDate(row.started))}</p><dl class="detection-facts"><div><dt>Duration</dt><dd>${eventDuration(row)}</dd></div><div><dt>Confidence</dt><dd>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</dd></div><div><dt>Upload</dt><dd>${row.status==='pending'?'Queued':escapeHTML(row.status)}</dd></div></dl><div id="review-panel"></div>${row.error?`<p class="error">${escapeHTML(row.error)}</p>`:''}${!row.video_url?'<p class="clip-unavailable">This recording is no longer available on this device.</p>':''}<div id="detail-feedback" role="status"></div><div class="detection-actions">${row.status==='pending'&&row.attempts?'<button id="retry-detection" type="button" class="secondary">Retry upload</button>':''}</div>`;
   video.hidden=!row.video_url;
-  if(row.video_url){video.src=row.video_url;video.load();}else{video.pause();video.removeAttribute('src');video.load();}
-  const review=async decision=>{
-    detail.querySelectorAll('button').forEach(button=>button.disabled=true);
-    try{await api(`sightings/${encodeURIComponent(id)}/review`,'POST',{decision});await refreshSightings();if(dialog.open)openDetection(id);}
-    catch(e){$('#detail-feedback').textContent=e.message;detail.querySelectorAll('button').forEach(button=>button.disabled=false);}
+  if(row.video_url){mountDetectionPlayer(row, video);}else{disposeDetectionPlayer();$('#detection-player')?.remove();dialog.append(video);video.pause();video.removeAttribute('src');video.load();}
+  const renderReview=(editing=false,thanks=false)=>{
+    const panel=$('#review-panel');
+    const reviewed=['confirmed','dismissed'].includes(row.review_status);
+    const showBox=editing||row.review_status==='required';
+    panel.innerHTML=showBox?`<section class="review-notice"><strong>${editing?'Update your review':'Needs review'}</strong><p>${editing?'Change whether this recording shows a train.':'Confidence is below 80%. Watch the clip and confirm whether this is a train.'}</p>${row.video_url?`<div class="review-buttons"><button id="confirm-detection" type="button">Confirm train</button><button id="dismiss-detection" type="button" class="secondary">Not a train</button>${editing?'<button id="cancel-review" type="button" class="text-button">Cancel</button>':''}</div>`:'<p>The recording is no longer available to review.</p>'}<p id="review-error" role="status"></p></section>`:`<div class="review-result"><span role="status">${thanks?'Thanks — ':reviewed?'Reviewed · ':''}${reviewed?(row.review_status==='confirmed'?'Marked as a train':'Marked as not a train'):'No review needed'}</span>${row.video_url?'<details class="review-menu"><summary aria-label="Review options">⋯</summary><button id="edit-review" type="button">Edit review</button></details>':''}</div>`;
+    const review=async decision=>{
+      panel.querySelectorAll('button').forEach(button=>button.disabled=true);
+      try{
+        await api(`sightings/${encodeURIComponent(id)}/review`,'POST',{decision});
+        row.review_status=decision;
+        if(panel.isConnected){renderReview(false,true);await refreshSightings();}
+      }catch(e){if(panel.isConnected){$('#review-error').textContent=e.message;panel.querySelectorAll('button').forEach(button=>button.disabled=false);}}
+    };
+    if($('#confirm-detection'))$('#confirm-detection').onclick=()=>review('confirmed');
+    if($('#dismiss-detection'))$('#dismiss-detection').onclick=()=>review('dismissed');
+    if($('#edit-review'))$('#edit-review').onclick=()=>renderReview(true);
+    if($('#cancel-review'))$('#cancel-review').onclick=()=>renderReview();
   };
-  if($('#confirm-detection'))$('#confirm-detection').onclick=()=>review('confirmed');
-  if($('#dismiss-detection'))$('#dismiss-detection').onclick=()=>review('dismissed');
+  renderReview();
   if($('#retry-detection'))$('#retry-detection').onclick=async()=>{try{await api(`sightings/${encodeURIComponent(id)}/retry`,'POST');$('#detail-feedback').textContent='Upload queued for retry.';}catch(e){$('#detail-feedback').textContent=e.message;}};
   if(!dialog.open)dialog.showModal();
+}
+let disposeDetectionPlayer = () => {};
+const playerTime = seconds => { const value=Math.max(0,Math.floor(seconds||0));return `${Math.floor(value/60)}:${String(value%60).padStart(2,'0')}`; };
+function mountDetectionPlayer(row, video) {
+  disposeDetectionPlayer();
+  $('#detection-player')?.remove();
+  const player=document.createElement('section');player.id='detection-player';
+  player.innerHTML=`<div class="recording-screen"></div><div class="recording-controls"><div id="player-note" class="player-note" role="status">Loading recording and detection timing…</div><div class="recording-timeline"><div class="detection-windows" aria-hidden="true"></div><input id="recording-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="Seek recording" disabled></div><div class="recording-toolbar"><button id="recording-play" class="secondary" type="button" disabled>Play</button><button id="recording-back" class="text-button" type="button" disabled aria-label="Back five seconds">−5s</button><button id="recording-forward" class="text-button" type="button" disabled aria-label="Forward five seconds">+5s</button><span id="recording-clock">0:00 / 0:00</span><button id="recording-detection" class="secondary" type="button" disabled>Play detection</button><label class="sr-only" for="recording-speed">Playback speed</label><select id="recording-speed" aria-label="Playback speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="recording-fullscreen" class="text-button" type="button">Full screen</button></div></div>`;
+  $('#detection-detail').before(player);player.querySelector('.recording-screen').append(video);
+  video.controls=false;video.muted=true;video.preload='metadata';
+  const seek=$('#recording-seek'),note=$('#player-note'),play=$('#recording-play'),jump=$('#recording-detection');
+  let disposed=false,windows=[];
+  const controller=new AbortController();
+  const duration=()=>Number.isFinite(video.duration)?video.duration:0;
+  const update=()=>{
+    if(disposed)return;
+    seek.value=video.currentTime;seek.setAttribute('aria-valuetext',`${playerTime(video.currentTime)} of ${playerTime(duration())}`);
+    $('#recording-clock').textContent=`${playerTime(video.currentTime)} / ${playerTime(duration())}`;
+    play.textContent=video.paused?'Play':'Pause';
+    seek.style.setProperty('--played',`${duration()?video.currentTime/duration()*100:0}%`);
+  };
+  const playVideo=()=>video.play().catch(()=>{if(!disposed){note.textContent='Ready. Press Play to watch the recording.';update();}});
+  const seekTo=time=>{video.currentTime=Math.max(0,Math.min(duration(),time));update();};
+  const metadataReady=new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true,signal:controller.signal}));
+  const timing=api(`sightings/${encodeURIComponent(row.id)}/timeline`).catch(()=>null);
+  video.addEventListener('timeupdate',update,{signal:controller.signal});
+  video.addEventListener('play',update,{signal:controller.signal});video.addEventListener('pause',update,{signal:controller.signal});video.addEventListener('ended',update,{signal:controller.signal});
+  video.addEventListener('error',()=>{note.textContent='Recording unavailable. It may have expired from this device.';play.disabled=true;seek.disabled=true;jump.disabled=true;},{signal:controller.signal});
+  play.onclick=()=>{if(video.paused)playVideo();else video.pause();};
+  seek.oninput=()=>seekTo(+seek.value);
+  $('#recording-back').onclick=()=>seekTo(video.currentTime-5);$('#recording-forward').onclick=()=>seekTo(video.currentTime+5);
+  $('#recording-speed').onchange=event=>video.playbackRate=+event.target.value;
+  $('#recording-fullscreen').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});else player.requestFullscreen().catch(()=>toast('Fullscreen is unavailable in this browser.'));};
+  jump.onclick=()=>{if(windows.length){seekTo(Math.max(0,windows[0].start-3));playVideo();}};
+  Promise.all([metadataReady,timing]).then(([,timeline])=>{
+    if(disposed||!duration())return;
+    seek.max=duration();seek.disabled=false;play.disabled=false;
+    $('#recording-back').disabled=false;$('#recording-forward').disabled=false;
+    // Video files use fixed-rate frames. Scale captured UTC bounds to their media duration.
+    const scale=timeline?.capture_seconds>0?duration()/timeline.capture_seconds:1;
+    windows=(timeline?.windows||[]).map(w=>({start:Math.max(0,Math.min(duration(),w.start*scale)),end:Math.max(0,Math.min(duration(),w.end*scale))})).filter(w=>w.end>w.start);
+    player.querySelector('.detection-windows').innerHTML=windows.map(w=>`<span style="left:${w.start/duration()*100}%;width:${(w.end-w.start)/duration()*100}%"></span>`).join('');
+    jump.disabled=!windows.length;
+    note.textContent=windows.length?`Highlighted: estimated detection · ${playerTime(windows[0].start)}–${playerTime(windows[windows.length-1].end)} · playback starts 3 seconds before`:'Detection timing unavailable for this recording. Playing from the beginning.';
+    seekTo(windows.length?Math.max(0,windows[0].start-3):0);update();playVideo();
+  });
+  disposeDetectionPlayer=()=>{disposed=true;controller.abort();video.pause();video.playbackRate=1;};
+  video.src=row.video_url;video.load();
 }
 async function refreshDashboard() {
   try {
@@ -483,7 +550,7 @@ async function refreshDashboard() {
   }catch(e){if(page==='dashboard')toast(e.message);}
   if(page==='dashboard')statusTimer=setTimeout(refreshDashboard,5000);
 }
-$('#close-video').onclick=()=>$('#video-dialog').close();$('#video-dialog').addEventListener('close',()=>{$('#video-dialog video').pause();$('#video-dialog video').removeAttribute('src');$('#video-dialog video').load();});
+$('#close-video').onclick=()=>$('#video-dialog').close();$('#video-dialog').addEventListener('close',()=>{disposeDetectionPlayer();$('#video-dialog video').pause();$('#video-dialog video').removeAttribute('src');$('#video-dialog video').load();});
 boot();
 
 function bindDevicePairing() {

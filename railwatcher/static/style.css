@@ -495,3 +495,35 @@ h1 { font-size:30px; letter-spacing:-.8px; font-weight:600; }
 .detection-actions { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0; }.clip-unavailable { color:var(--muted); padding:20px 0; }
 @media(max-width:1050px) { .dashboard-layout { grid-template-columns:minmax(0,1fr); }.dashboard-main { grid-column:1; grid-row:1; }.dashboard-sidebar .sidebar-preview { grid-column:1; grid-row:2; }.dashboard-sidebar .event-panel { grid-row:3; } }
 @media(max-width:800px) { .dashboard-sidebar .event-panel { padding:16px; }.event-table td,.event-table th { padding:12px 10px; }.detection-facts { gap:24px; }#video-dialog { padding:20px; } }
+
+#video-dialog { width:min(1080px,calc(100% - 32px)); }
+#detection-player { overflow:hidden; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+.recording-screen { display:grid; place-items:center; background:#101112; min-height:180px; }
+#detection-player video { display:block; width:100%; max-height:50vh; margin:0; }
+.recording-controls { padding:16px 18px; }
+.player-note { font-size:12px; color:var(--muted); margin-bottom:16px; line-height:1.5; }
+.recording-timeline { position:relative; height:24px; display:flex; align-items:center; }
+.detection-windows { position:absolute; inset:8px 0; border-radius:4px; background:var(--line); overflow:hidden; pointer-events:none; }
+.detection-windows span { position:absolute; height:100%; background:#d6a638; opacity:.95; }
+#recording-seek { appearance:none; width:100%; margin:0; height:24px; background:transparent; position:relative; cursor:pointer; accent-color:var(--ink); }
+#recording-seek::-webkit-slider-runnable-track { height:8px; background:linear-gradient(to right,#8885 var(--played,0%),transparent var(--played,0%)); border-radius:4px; }
+#recording-seek::-webkit-slider-thumb { appearance:none; height:16px; width:16px; margin-top:-4px; border-radius:50%; background:var(--ink); border:2px solid var(--surface); box-shadow:0 0 0 1px var(--line-dark); }
+#recording-seek::-moz-range-track { background:transparent; }#recording-seek::-moz-range-thumb { background:var(--ink); border:2px solid var(--surface); border-radius:50%; width:14px; height:14px; }
+.recording-toolbar { display:flex; align-items:center; gap:8px; margin-top:12px; flex-wrap:wrap; }
+.recording-toolbar button { font-size:12px; min-height:34px; padding:6px 10px; }.recording-toolbar select { width:auto; margin:0; padding:6px; min-height:34px; font-size:12px; }
+#recording-clock { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-right:auto; }
+#detection-player:fullscreen { width:100%; height:100%; display:flex; flex-direction:column; border:0; border-radius:0; background:var(--surface); }
+#detection-player:fullscreen .recording-screen { flex:1; min-height:0; }#detection-player:fullscreen video { height:100%; max-height:100%; object-fit:contain; }
+@media(max-width:600px) { .recording-controls { padding:12px; }#recording-clock { margin-right:0; }.recording-toolbar { gap:5px; }#recording-detection { margin-left:auto; } }
+#recording-seek { padding:0; border:0; border-radius:0; box-shadow:none; }
+#video-dialog .dialog-head { margin-bottom:16px; }
+.review-notice { background:#fff8df; border-color:#ecdda3; color:#624a11; padding:20px; }
+.review-notice > strong { font-size:14px; font-weight:600; }.review-notice p { color:#786026; }
+.review-buttons { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; }
+.review-buttons .secondary { background:#fffdf5; border-color:#d4c596; color:#624a11; }.review-buttons .secondary:hover { background:#f5ebcb; }
+#review-error:empty { display:none; }
+.review-result { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:18px 0; color:var(--muted); font-size:13px; }
+.review-menu { position:relative; }.review-menu summary { list-style:none; cursor:pointer; font-size:22px; line-height:1; padding:5px 10px; border-radius:5px; margin:0; }.review-menu summary::-webkit-details-marker { display:none; }
+.review-menu summary:hover { background:var(--surface-alt); }.review-menu summary:focus-visible { outline:2px solid var(--ink); }
+.review-menu button { position:absolute; z-index:2; top:100%; right:0; white-space:nowrap; min-width:130px; background:var(--surface); color:var(--ink); border:1px solid var(--line); box-shadow:0 4px 12px #0001; font-weight:500; text-align:left; }.review-menu button:hover { background:var(--surface-alt); }
+[data-theme="dark"] .review-notice { background:#352b16; border-color:#6b5728; color:#eddaa4; }[data-theme="dark"] .review-notice p { color:#dac58f; }[data-theme="dark"] .review-buttons .secondary { background:#46391d; color:#eddaa4; border-color:#796336; }

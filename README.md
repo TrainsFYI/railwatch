@@ -176,3 +176,11 @@ Needs review until the user confirms or dismisses them. Manual sightings count
 as confirmed. Review decisions are retained locally without rewriting the
 original capture confidence or upload history. Recordings that have expired
 remain visible as events, with an explanation that their video is unavailable.
+
+Detection recordings use a dedicated player with an amber detection interval,
+scrubbing, five-second skips, speed selection, and fullscreen. Opening a clip
+starts playback three seconds before the saved detection interval; Play detection
+returns to that point. Saved passage timestamps are clipped to the recording's
+bounds and scaled to its media duration. The highlighted interval is an estimate,
+not a verified train boundary. Legacy and manually selected archive clips without
+confirmed detector timing play from the beginning without an invented highlight.

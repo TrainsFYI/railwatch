@@ -208,6 +208,13 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             raise HTTPException(404, "Detection not found")
         return {"review_status": body["decision"]}
 
+    @app.get("/api/sightings/{event_id}/timeline")
+    def sighting_timeline(event_id: str):
+        row = store.get(event_id)
+        if row is None:
+            raise HTTPException(404, "Detection not found")
+        return engine.passages.timeline(row)
+
     @app.get("/api/sightings/{event_id}/video")
     def video(event_id: str):
         row = store.get(event_id)

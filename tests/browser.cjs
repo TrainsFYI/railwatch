@@ -1,11 +1,13 @@
 /* Real server/browser smoke test. No camera, model or internet needed. */
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '@playwright/test');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'railwatcher-browser-'));
+const sampleClip=path.join(data,'player-sample.mp4');
+assert.equal(spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=gray:s=320x180:r=10','-t','12','-c:v','libx264','-pix_fmt','yuv420p',sampleClip]).status,0);
 const port = Number(process.env.TEST_PORT || 18787);
 const base = `http://127.0.0.1:${port}`;
 const server = process.env.RAILWATCHER_EXTERNAL_SERVER ? {exitCode:null,stderr:{on(){}},stdout:{on(){}},kill(){}} : spawn(process.env.RAILWATCHER_PYTHON || '.venv/bin/python', ['-m', 'railwatcher', '--port', String(port), '--data', data, '--model', path.join(data, 'missing.onnx')], {stdio: ['ignore', 'pipe', 'pipe']});
@@ -27,6 +29,12 @@ async function main() {
     await page.route(/https:\/\/(server\.arcgisonline|tiles\.openrailwaymap)/, route=>route.abort());
     await page.goto(base);
     await page.getByRole('heading',{name:'Video source'}).waitFor();
+    const dateLabels=await page.evaluate(()=>{
+      const now=new Date(2025,0,2,14,53);
+      return [detectionDate(new Date(2025,0,2,14,53).getTime()/1000,now),detectionDate(new Date(2025,0,1,14,53).getTime()/1000,now),detectionDate(new Date(2025,0,1,14,53).getTime()/1000,new Date(2025,0,3))];
+    });
+    assert.deepEqual(dateLabels,['Today at 2:53 PM','Yesterday at 2:53 PM','Wednesday, January 1, 2025 at 2:53 PM']);
+
     await page.getByRole('link',{name:'Railwatcher by Trains.FYI home'}).waitFor();
     await page.getByRole('button',{name:'Switch to dark mode'}).click();
     assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
@@ -101,12 +109,41 @@ async function main() {
     await page.locator('#app-sidebar').getByRole('button',{name:'Detections',exact:true}).click();
     await page.getByRole('cell',{name:'62%',exact:true}).waitFor();
     await page.getByText('Needs review',{exact:true}).waitFor();
+    await page.route('**/test-clip.mp4',route=>{
+      const bytes=fs.readFileSync(sampleClip),range=route.request().headers().range;
+      if(range){const [start,end]=range.replace('bytes=','').split('-').map(Number);const last=end||bytes.length-1;return route.fulfill({status:206,contentType:'video/mp4',headers:{'Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${last}/${bytes.length}`},body:bytes.subarray(start,last+1)});}
+      return route.fulfill({contentType:'video/mp4',headers:{'Accept-Ranges':'bytes'},body:bytes});
+    });
+    await page.route('**/api/sightings/test-low/timeline',route=>route.fulfill({json:{capture_seconds:12,windows:[{start:6,end:9}],lead_in_seconds:3}}));
     await page.locator('.event-open').click();
     await page.getByRole('heading',{name:'Detection details',exact:true}).waitFor();
+    await page.waitForFunction(()=>document.querySelector('#recording-seek')?.disabled===false);
+    const player=page.locator('#video-dialog video');
+    await page.waitForFunction(()=>document.querySelector('#video-dialog video').currentTime>=3);
+    assert.ok(await player.evaluate(video=>video.currentTime)<5,'Playback starts just before detection rather than at clip start');
+    assert.equal(await page.locator('.detection-windows span').count(),1);
+    assert.ok((await page.locator('.detection-windows span').getAttribute('style')).includes('left:50%'));
+    await page.getByRole('button',{name:'Pause',exact:true}).click();
+    await page.getByRole('slider',{name:'Seek recording'}).fill('10');
+    await page.waitForTimeout(200);
+    assert.ok(Math.abs(await player.evaluate(video=>video.currentTime)-10)<.2, JSON.stringify(await player.evaluate(video=>({time:video.currentTime,duration:video.duration,ready:video.readyState,seek:document.querySelector('#recording-seek').value}))));
+    await page.getByRole('button',{name:'Play detection',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#video-dialog video').currentTime>=3);
+    assert.ok(await player.evaluate(video=>video.currentTime)<5);
+    await page.getByLabel('Playback speed').selectOption('2');
+    assert.equal(await player.evaluate(video=>video.playbackRate),2);
+    await page.screenshot({path:'artifacts/detection-timeline-player.png',fullPage:true});
+
+    assert.equal(await page.locator('.review-notice #confirm-detection').count(),1);
+    assert.equal(await page.locator('.review-notice #dismiss-detection').count(),1);
     await page.getByRole('button',{name:'Confirm train',exact:true}).click();
-    await page.locator('#detection-detail .review-chip.confirmed').waitFor();
+    await page.getByText('Thanks — Marked as a train',{exact:true}).waitFor();
+    assert.equal(await page.locator('.review-notice').count(),0);
+    await page.getByLabel('Review options',{exact:true}).click();
+    await page.getByRole('button',{name:'Edit review',exact:true}).click();
     await page.getByRole('button',{name:'Not a train',exact:true}).click();
-    await page.locator('#detection-detail .review-chip.dismissed').waitFor();
+    await page.getByText('Thanks — Marked as not a train',{exact:true}).waitFor();
+    assert.equal(await page.locator('.review-notice').count(),0);
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.locator('#app-sidebar').getByRole('button',{name:'Live',exact:true}).click();
     await page.getByRole('heading',{name:'Recent events',exact:true}).waitFor();

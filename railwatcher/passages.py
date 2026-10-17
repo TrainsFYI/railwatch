@@ -97,6 +97,23 @@ class Passages:
             db.execute("INSERT INTO passages(id,metadata,status) VALUES(?,?,'pending')", (identity, json.dumps(metadata)))
         return identity
 
+    def timeline(self, part):
+        """Expose captured detection bounds, never inferred from current pre-roll settings."""
+        duration = max(0., (part['ended'] or part['started']) - part['started'])
+        windows = []
+        with self.store.connect() as db:
+            passages = db.execute("SELECT metadata FROM passages").fetchall()
+        for row in passages:
+            passage = json.loads(row['metadata'])
+            if part['id'] not in passage.get('parts', []) or passage.get('origin') != 'confirmed_live':
+                continue
+            start = max(0., passage['detected_started'] - part['started'])
+            end = min(duration, passage['detected_ended'] - part['started'])
+            if end > start:
+                windows.append({'start': start, 'end': end})
+        windows.sort(key=lambda window: window['start'])
+        return {'capture_seconds': duration, 'windows': windows, 'lead_in_seconds': 3}
+
     def pending(self):
         with self.store.connect() as db:
             rows = db.execute("SELECT * FROM passages WHERE status='pending' AND next_attempt<=? ORDER BY rowid", (time.time(),)).fetchall()
