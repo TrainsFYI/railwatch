@@ -108,6 +108,9 @@ async function main() {
     await page.route('**/api/sightings/test-low/review',route=>{reviewState=route.request().postDataJSON().decision;return route.fulfill({json:{review_status:reviewState}});});
     await page.locator('#app-sidebar').getByRole('button',{name:'Detections',exact:true}).click();
     await page.getByRole('cell',{name:'62%',exact:true}).waitFor();
+    await page.setViewportSize({width:390,height:844});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Detection table stays within mobile viewport');
+    await page.setViewportSize({width:1440,height:1000});
     await page.getByText('Needs review',{exact:true}).waitFor();
     await page.route('**/test-clip.mp4',route=>{
       const bytes=fs.readFileSync(sampleClip),range=route.request().headers().range;
@@ -307,7 +310,7 @@ async function main() {
     await page.screenshot({path:'artifacts/landmarks-mobile.png',fullPage:true});
     await page.getByRole('tab',{name:'Location & view',exact:true}).click();
     await page.getByLabel('Camera direction').fill('180');
-    await page.getByRole('button',{name:'Save settings'}).click();
+    await Promise.all([page.waitForResponse(response=>response.url().endsWith('/api/config')&&response.request().method()==='PATCH'&&response.ok()),page.getByRole('button',{name:'Save settings'}).click()]);
     await page.getByText('Settings saved.').waitFor();
     const updated = await page.evaluate(async()=> (await fetch('/api/config')).json());
     assert.equal(updated.bearing,180); assert.equal(updated.name,'West junction');
@@ -322,13 +325,13 @@ async function main() {
     await page.mouse.down();
     await page.mouse.move(redrawBox.x+redrawBox.width*.4,redrawBox.y+redrawBox.height*.3,{steps:5});
     await page.mouse.up();
-    await page.getByRole('button',{name:'Save settings'}).click();
+    await Promise.all([page.waitForResponse(response=>response.url().endsWith('/api/config')&&response.request().method()==='PATCH'&&response.ok()),page.getByRole('button',{name:'Save settings'}).click()]);
     await page.getByText('Settings saved.').waitFor();
     const redrawn=await page.request.get(`${base}/api/config`).then(r=>r.json());
     assert.equal(redrawn.landmarks[0].id,updated.landmarks[0].id);
     for(const [i,value] of [.4,.3,.6,.6].entries()) assert.ok(Math.abs(redrawn.landmarks[0].box[i]-value)<.01);
     await page.getByRole('button',{name:'Remove selected landmark'}).click();
-    await page.getByRole('button',{name:'Save settings'}).click();
+    await Promise.all([page.waitForResponse(response=>response.url().endsWith('/api/config')&&response.request().method()==='PATCH'&&response.ok()),page.getByRole('button',{name:'Save settings'}).click()]);
     await page.getByText('Settings saved.').waitFor();
     assert.deepEqual((await page.request.get(`${base}/api/config`).then(r=>r.json())).landmarks,[]);
 

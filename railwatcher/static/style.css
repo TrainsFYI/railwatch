@@ -527,3 +527,4 @@ h1 { font-size:30px; letter-spacing:-.8px; font-weight:600; }
 .review-menu summary:hover { background:var(--surface-alt); }.review-menu summary:focus-visible { outline:2px solid var(--ink); }
 .review-menu button { position:absolute; z-index:2; top:100%; right:0; white-space:nowrap; min-width:130px; background:var(--surface); color:var(--ink); border:1px solid var(--line); box-shadow:0 4px 12px #0001; font-weight:500; text-align:left; }.review-menu button:hover { background:var(--surface-alt); }
 [data-theme="dark"] .review-notice { background:#352b16; border-color:#6b5728; color:#eddaa4; }[data-theme="dark"] .review-notice p { color:#dac58f; }[data-theme="dark"] .review-buttons .secondary { background:#46391d; color:#eddaa4; border-color:#796336; }
+.event-table-wrap { position:relative; }
