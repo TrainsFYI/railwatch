@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
 SEGMENT_SECONDS = 120
@@ -21,7 +22,9 @@ SEGMENT_NAME = re.compile(r"^(\d{8}T\d{6})\.mp4$")
 class FootageBuffer:
     """Low-rate, rolling disk archive of the camera feed."""
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, config=None):
+        self.config = config
+        self.review_directory = directory.parent / "night-review"
         self.directory = directory
         self.directory.mkdir(parents=True, exist_ok=True)
         self.frames = queue.Queue(maxsize=100)
@@ -111,7 +114,9 @@ class FootageBuffer:
     def _segments(self, now=None):
         now = time.time() if now is None else now
         found = []
-        for path in self.directory.glob("*.mp4"):
+        paths = {path.name: path for path in self.review_directory.glob("*.mp4")}
+        paths.update({path.name: path for path in self.directory.glob("*.mp4")})
+        for path in paths.values():
             match = SEGMENT_NAME.fullmatch(path.name)
             if not match:
                 continue
@@ -128,11 +133,11 @@ class FootageBuffer:
                 ).timestamp()
             except ValueError:
                 continue
-            if started >= now - RETENTION_SECONDS - SEGMENT_SECONDS:
+            if path.parent == self.review_directory or started >= now - RETENTION_SECONDS - SEGMENT_SECONDS:
                 found.append((started, path, size))
         found.sort()
-        if self.active and found:
-            # The last segment is still open in FFmpeg and has no MP4 index yet.
+        if self.active and found and found[-1][1].parent == self.directory:
+            # The last live segment is still open and has no MP4 index yet.
             found.pop()
         result = []
         for index, (started, path, size) in enumerate(found):
@@ -145,6 +150,7 @@ class FootageBuffer:
                     "ended": ended,
                     "bytes": size,
                     "video_url": f"/api/buffer/{path.name}",
+                    "retained_for_review": (self.review_directory / path.name).is_file(),
                 })
         return result
 
@@ -166,7 +172,8 @@ class FootageBuffer:
             return None
         for item in self._segments():
             if item["id"] == filename:
-                return self.directory / filename
+                live = self.directory / filename
+                return live if live.is_file() else self.review_directory / filename
         return None
 
     def _prune(self):
@@ -185,6 +192,7 @@ class FootageBuffer:
             segments.append((started, path))
         segments.sort()
         active_path = segments[-1][1] if self.active and segments else None
+        self._retain_night(segments, active_path, now)
         free_bytes = shutil.disk_usage(self.directory).free
         for started, path in segments:
             too_old = now - started > RETENTION_SECONDS
@@ -193,6 +201,42 @@ class FootageBuffer:
                 size = path.stat().st_size
                 path.unlink(missing_ok=True)
                 free_bytes += size
+
+    def _retain_night(self, segments, active_path, now):
+        if self.config is None:
+            return
+        settings = self.config.get()
+        self.review_directory.mkdir(exist_ok=True)
+        if settings.night_review_enabled:
+            zone = ZoneInfo(settings.night_review_timezone)
+            start, end = settings.night_review_start_hour, settings.night_review_end_hour
+            for started, path in segments:
+                hour = dt.datetime.fromtimestamp(started, zone).hour
+                in_window = start <= hour < end if start < end else hour >= start or hour < end
+                if path == active_path or not in_window or now - started > settings.night_review_hours * 3600:
+                    continue
+                target = self.review_directory / path.name
+                if not target.exists() and shutil.disk_usage(self.directory).free >= 1_000_000_000:
+                    try:
+                        os.link(path, target)
+                    except FileExistsError:
+                        pass
+                    except OSError:
+                        log.warning("Could not retain a night review segment", exc_info=True)
+        # Budget includes retained originals, independent of pending upload media.
+        retained = sorted(self.review_directory.glob("*.mp4"))
+        total = sum(path.stat().st_size for path in retained)
+        limit = int(settings.night_review_gb * 1_000_000_000)
+        for path in retained:
+            if not SEGMENT_NAME.fullmatch(path.name):
+                continue
+            try:
+                started = dt.datetime.strptime(path.stem, "%Y%m%dT%H%M%S").replace(tzinfo=dt.UTC).timestamp()
+            except ValueError:
+                continue
+            if now-started > settings.night_review_hours*3600 or total > limit or shutil.disk_usage(self.directory).free < 1_000_000_000:
+                total -= path.stat().st_size
+                path.unlink(missing_ok=True)
 
     def export_mark(self, store, settings, started: float, ended: float):
         rows = self._segments()
@@ -219,7 +263,7 @@ class FootageBuffer:
         partial = store.clips / f"{event_id}.partial.mp4"
         final = store.clips / f"{event_id}.mp4"
         try:
-            concat.write_text("".join(f"file '{(self.directory / row['id']).as_posix()}'\n" for row in selected))
+            concat.write_text("".join(f"file '{self.find(row['id']).as_posix()}'\n" for row in selected))
             result = subprocess.run(
                 [
                     "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",

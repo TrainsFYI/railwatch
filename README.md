@@ -147,3 +147,16 @@ installations retain up to 120 seconds before local confirmation. Those ranges
 are candidate negative training context requiring review, not automatic ground
 truth labels. Captured polygons, model hashes and configuration revisions travel
 with the clip. Existing pending v2.0 uploads retain their original retry identity.
+
+### Nighttime training review
+
+Settings → Recording & storage → Night review can retain nighttime archive
+segments beyond the normal 24-hour buffer. Choose the installation's IANA
+timezone, local start/end hours, retention hours and a separate storage budget.
+The oldest retained recordings expire when either limit is reached. Capture
+leaves 1 GB of disk headroom and never prunes pending upload media for this
+review budget. Review footage → All footage includes these recordings, labeled
+“Night review”; they can be played, marked, and explicitly submitted like other
+historical footage. Retention does not confirm a train and does not enqueue an
+automatic upload. Disabling collection stops new retention; existing review
+recordings expire according to the configured limits.

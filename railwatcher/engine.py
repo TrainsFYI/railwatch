@@ -175,7 +175,7 @@ class Recording:
 class Engine:
     def __init__(self, config, store, model: Path):
         self.config, self.store, self.model_path = config, store, model
-        self.footage = FootageBuffer(store.directory / "buffer")
+        self.footage = FootageBuffer(store.directory / "buffer", config)
         self.stop = threading.Event()
         self.lock = threading.RLock()
         self.preview_requested = 0.0

@@ -198,6 +198,8 @@ async function main() {
     assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).backgroundColor),'rgb(255, 255, 255)');
     await page.getByLabel('Camera name',{exact:true}).fill('Unsaved camera name');
     await page.getByRole('tab',{name:'Recording & storage',exact:true}).click();
+    await page.getByLabel('Retain nighttime footage for local review').check();
+    await page.getByLabel('Timezone',{exact:true}).fill('America/Toronto');
     await page.getByRole('tab',{name:'Camera',exact:true}).click();
     assert.equal(await page.getByLabel('Camera name',{exact:true}).inputValue(),'Unsaved camera name','Switching sections preserves form edits');
     await page.getByLabel('Camera name',{exact:true}).fill('West junction');
@@ -211,6 +213,8 @@ async function main() {
     await page.getByText('Settings saved.',{exact:true}).waitFor();
     const unchanged=await page.evaluate(async()=> (await fetch('/api/config')).json());
     assert.equal(unchanged.latitude,preserved.latitude);assert.equal(unchanged.longitude,preserved.longitude);
+    assert.equal(unchanged.night_review_enabled,true);
+    assert.equal(unchanged.night_review_timezone,'America/Toronto');
     assert.deepEqual(unchanged.railway_calibration,preserved.railway_calibration,'Unrelated settings save preserves matched railway points and revision');
     await page.getByRole('tab',{name:'Camera',exact:true}).click();
     await page.getByRole('tab',{name:'Camera',exact:true}).focus();

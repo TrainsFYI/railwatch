@@ -114,7 +114,7 @@ class MotionIndex:
             return row["result"] if row.get("signature") == signature else {"state": "pending", "windows": []}
 
     def analyse_segment(self, segment):
-        return analyse(self.footage.directory / segment["id"], self.config.get().detection_mask, self.stop)
+        return analyse(self.footage.find(segment["id"]), self.config.get().detection_mask, self.stop)
 
     def ordered_segments(self):
         return self.footage._segments()

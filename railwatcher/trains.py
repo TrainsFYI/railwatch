@@ -89,4 +89,4 @@ class TrainIndex(MotionIndex):
     def analyse_segment(self, segment):
         if self.detector is None:
             self.detector = TrainDetector(self.model)
-        return analyse_trains(self.footage.directory/segment['id'],self.detector,self.config.get(),self.stop)
+        return analyse_trains(self.footage.find(segment['id']),self.detector,self.config.get(),self.stop)

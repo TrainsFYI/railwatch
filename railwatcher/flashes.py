@@ -119,4 +119,4 @@ class FlashIndex(MotionIndex):
     def analyse_segment(self, segment):
         if not self.config.get().landmarks:
             return {'state':'quiet', 'windows':[]}
-        return analyse_flashes(self.footage.directory / segment['id'], self.config.get().landmarks, self.stop)
+        return analyse_flashes(self.footage.find(segment['id']), self.config.get().landmarks, self.stop)

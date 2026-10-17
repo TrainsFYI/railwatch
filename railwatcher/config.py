@@ -1,6 +1,7 @@
 import os
 import math
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import re
 import threading
 from pathlib import Path
@@ -81,11 +82,26 @@ class Settings(BaseModel):
     pre_roll: int = Field(default=120, ge=3, le=120)
     post_roll: int = Field(default=15, ge=3, le=60)
     max_clip_seconds: int = Field(default=300, ge=30, le=900)
+    night_review_enabled: bool = False
+    night_review_timezone: str = Field(default="UTC", max_length=80)
+    night_review_start_hour: int = Field(default=19, ge=0, le=23)
+    night_review_end_hour: int = Field(default=7, ge=0, le=23)
+    night_review_hours: int = Field(default=72, ge=24, le=168)
+    night_review_gb: float = Field(default=2, ge=.25, le=20)
     storage_gb: float = Field(default=8, ge=1, le=1000)
     api_key: str = Field(default="", max_length=512)
     upload_url: str = Field(default="", max_length=2048)
     enabled: bool = False
     setup_complete: bool = False
+
+    @field_validator("night_review_timezone")
+    @classmethod
+    def review_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("Choose a valid timezone, for example America/Toronto") from None
+        return value
 
     @field_validator("landmarks")
     @classmethod
