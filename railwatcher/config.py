@@ -76,6 +76,7 @@ class Settings(BaseModel):
     confidence: float = Field(default=0.55, ge=0.1, le=0.99)
     detection_mask: list[tuple[float, float]] = Field(default_factory=list, max_length=32)
     landmarks: list[Landmark] = Field(default_factory=list, max_length=32)
+    approximate_speed_enabled: bool = False
     railway_calibration: RailCalibration | None = None
     railway_calibration_draft: list[RailPoint] = Field(default_factory=list, max_length=3)
     confirmations: int = Field(default=3, ge=1, le=10)

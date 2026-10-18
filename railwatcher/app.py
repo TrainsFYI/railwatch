@@ -14,6 +14,8 @@ from pydantic import ValidationError
 from .config import ConfigStore
 from .engine import Engine
 from .flashes import FlashIndex
+from .local_analysis import LocalAnalysis
+from .model_updates import ModelUpdates
 from .motion import MotionIndex
 from .pairing import Pairing
 from .store import Store
@@ -28,23 +30,30 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     directory.chmod(0o700)
     config, store = ConfigStore(directory), Store(directory)
-    engine = Engine(config, store, model or Path(os.environ.get("RAILWATCHER_MODEL", "models/train.onnx")))
+    model_updates = ModelUpdates(directory, model or Path(os.environ.get("RAILWATCHER_MODEL", "models/train.onnx")), config)
+    engine = Engine(config, store, model_updates.path('detector'))
+    engine.model_provider = lambda: model_updates.path('detector')
     pairing = Pairing(directory)
     uploader = Uploader(config, store, pairing, engine.passages)
     motion = MotionIndex(engine.footage, config)
     flashes = FlashIndex(engine.footage, config)
     trains = TrainIndex(engine.footage, config, engine.model_path)
+    local_analysis = LocalAnalysis(store, engine.passages, model_updates.path('train_type'))
+    local_analysis.model_provider = lambda: model_updates.path('train_type')
+    trains.model_provider = lambda: model_updates.path('detector')
 
     @asynccontextmanager
     async def lifespan(app):
         if workers:
             engine.start()
+            local_analysis.start()
             motion.start()
             trains.start()
             pairing.start()
             uploader.start()
         yield
         if workers:
+            await asyncio.to_thread(local_analysis.close)
             await asyncio.to_thread(trains.close)
             await asyncio.to_thread(motion.close)
             await asyncio.to_thread(engine.close)
@@ -56,6 +65,8 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     app.state.motion = motion
     app.state.flashes = flashes
     app.state.trains = trains
+    app.state.local_analysis = local_analysis
+    app.state.model_updates = model_updates
 
     @app.middleware("http")
     async def browser_guard(request, call_next):
@@ -70,6 +81,28 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/api/") else "no-cache"
         return response
+
+    @app.get('/api/models')
+    def models():
+        return {**model_updates.public(), 'running_detector_sha256': engine.model_version}
+
+    @app.post('/api/models/check')
+    def check_models():
+        try:
+            model_updates.launch()
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        return {'status': 'checking'}
+
+    @app.post('/api/models/{identity}/download')
+    def download_model(identity: str):
+        if identity not in {'detector', 'train_type'}:
+            raise HTTPException(404, 'Unknown model')
+        try:
+            model_updates.launch(identity)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        return {'status': 'downloading'}
 
     @app.get("/api/device")
     def device_status():
@@ -188,12 +221,16 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     @app.get("/api/sightings")
     def sightings(offset: int = 0):
         rows = store.list(50, max(0, offset))
+        estimates = local_analysis.results()
         for row in rows:
             metadata = json.loads(row["metadata"])
             row["manual_review"] = bool(metadata.get("manual_review"))
             row["review_status"] = metadata.get("user_review", {}).get("decision") or (
                 "confirmed" if row["manual_review"] else "required" if row["confidence"] < .8 else "not_required"
             )
+            row['local_analysis'] = estimates.get(row['id'], {})
+            row['user_train_type'] = metadata.get('user_review', {}).get('train_type')
+            row['train_type'] = (row['user_train_type'] or row['local_analysis'].get('train_type', {}).get('value')) if row['review_status'] != 'dismissed' else None
             row.pop("metadata")
             row["video_url"] = f"/api/sightings/{row['id']}/video" if row["filename"] else None
             row.pop("filename")
@@ -204,7 +241,10 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
         body = await request.json()
         if not isinstance(body, dict) or body.get("decision") not in {"confirmed", "dismissed"}:
             raise HTTPException(422, "Choose confirmed or dismissed")
-        if not store.review(event_id, body["decision"]):
+        train_type = body.get('train_type')
+        if (train_type is not None and not isinstance(train_type, str)) or train_type not in {None, 'freight', 'passenger', 'unknown'} or (body['decision'] == 'dismissed' and train_type not in {None, 'unknown'}):
+            raise HTTPException(422, 'Choose freight, passenger, or unknown for a confirmed train')
+        if not store.review(event_id, body["decision"], train_type):
             raise HTTPException(404, "Detection not found")
         return {"review_status": body["decision"]}
 

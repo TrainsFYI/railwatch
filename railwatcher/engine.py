@@ -1,4 +1,5 @@
 import collections
+import hashlib
 import logging
 import os
 import queue
@@ -70,6 +71,12 @@ class Recording:
         self.final = store.clips / f"{self.id}.mp4"
         metadata = settings.model_dump(include={"name", "latitude", "longitude", "bearing", "field_of_view"})
         metadata.update(schema_version=1, capture_fps=FPS, width=WIDTH, height=HEIGHT)
+        metadata['analysis_context'] = {
+            'source_sha256': hashlib.sha256(settings.source.encode()).hexdigest(),
+            'railway_calibration': settings.railway_calibration.model_dump() if settings.railway_calibration else None,
+            'approximate_speed_enabled': settings.approximate_speed_enabled,
+            'detection_mask': settings.detection_mask,
+        }
         store.create(self.id, self.started, score, metadata)
         # Pre-roll is queued in a burst; reserve it independently of live encoder slack.
         self.frames = queue.Queue(maxsize=len(frames) + FPS * 40)
@@ -193,6 +200,7 @@ class Engine:
         self.storage_status = None
         self.last_score = 0.0
         self.threads = []
+        self.model_provider = None
 
     def start(self):
         for target in (self._capture, self._detect):
@@ -297,6 +305,12 @@ class Engine:
         detector, trigger, previous, last_frame = None, None, None, 0
         while not self.stop.is_set():
             settings = self.config.get()
+            candidate = self.model_provider() if self.model_provider else self.model_path
+            if candidate != self.model_path and not self.passages.active:
+                with self.lock:
+                    self.model_path = candidate
+                    self.model_version = hashlib.sha256(candidate.read_bytes()).hexdigest()
+                    detector, trigger, previous = None, None, None
             if not settings.enabled:
                 with self.lock:
                     self._finish("capture_disabled")

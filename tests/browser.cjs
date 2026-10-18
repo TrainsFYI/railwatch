@@ -108,6 +108,9 @@ async function main() {
     await page.route('**/api/sightings/test-low/review',route=>{reviewState=route.request().postDataJSON().decision;return route.fulfill({json:{review_status:reviewState}});});
     await page.locator('#app-sidebar').getByRole('button',{name:'Detections',exact:true}).click();
     await page.getByRole('cell',{name:'62%',exact:true}).waitFor();
+    await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
+    assert.equal(await page.locator('body > header').evaluate(e=>Math.round(e.getBoundingClientRect().top)),0,'Navbar remains at the top while scrolling');
+    await page.evaluate(()=>scrollTo(0,0));
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Detection table stays within mobile viewport');
     await page.setViewportSize({width:1440,height:1000});
@@ -139,8 +142,10 @@ async function main() {
 
     assert.equal(await page.locator('.review-notice #confirm-detection').count(),1);
     assert.equal(await page.locator('.review-notice #dismiss-detection').count(),1);
+    await page.getByLabel('Train type',{exact:true}).selectOption('passenger');
     await page.getByRole('button',{name:'Confirm train',exact:true}).click();
-    await page.getByText('Thanks — Marked as a train',{exact:true}).waitFor();
+    await page.getByText('Thanks — Marked as passenger train',{exact:true}).waitFor();
+    assert.equal(await page.getByLabel('Train type',{exact:true}).count(),0);
     assert.equal(await page.locator('.review-notice').count(),0);
     await page.getByLabel('Review options',{exact:true}).click();
     await page.getByRole('button',{name:'Edit review',exact:true}).click();
@@ -178,6 +183,10 @@ async function main() {
     await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();
     await page.getByLabel('RTSP stream URL').waitFor();
     assert.equal(await page.getByLabel('RTSP stream URL').getAttribute('type'),'text');
+    await page.getByRole('tab',{name:'Models & local analysis',exact:true}).click();
+    await page.getByRole('heading',{name:'Train detector',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Freight / passenger classifier',exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Download latest weights',exact:true}).count(),2);
     await page.getByRole('tab',{name:'Railway calibration',exact:true}).click();
     await page.getByRole('button',{name:'Match railway points',exact:true}).click();
     await page.getByRole('heading',{name:'Match two rail landmarks',exact:true}).waitFor();
@@ -190,7 +199,7 @@ async function main() {
     const aligned=await image.boundingBox();
     assert.ok(Math.abs(aligned.width/aligned.height-4/3)<.03,'Calibration overlay matches native image aspect ratio');
     async function pickPair(imageX,mapX) {
-      await image.scrollIntoViewIfNeeded();
+      await image.evaluate(element=>element.scrollIntoView({block:'center'}));
       const box=await image.boundingBox();
       await page.mouse.click(box.x+box.width*imageX,box.y+box.height*.4);
       await page.locator('#map').scrollIntoViewIfNeeded();
@@ -300,7 +309,7 @@ async function main() {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Mobile settings overflow');
     await page.getByRole('button',{name:'Add landmark',exact:true}).click();
     await page.getByLabel('Landmark label',{exact:true}).fill('Crossing light <left>');
-    await page.locator('#mask-canvas').scrollIntoViewIfNeeded();
+    await page.locator('#mask-canvas').evaluate(element=>element.scrollIntoView({block:'center'}));
     const canvasBox=await page.locator('#mask-canvas').boundingBox();
     await page.mouse.move(canvasBox.x+canvasBox.width*.2,canvasBox.y+canvasBox.height*.2);
     await page.mouse.down();
@@ -319,7 +328,7 @@ async function main() {
     await page.getByRole('tab',{name:'Train detection',exact:true}).click();
     assert.equal(await page.getByLabel('Landmark label',{exact:true}).inputValue(),'Crossing light <left>');
     await page.getByLabel('Image editing mode').selectOption('landmarks');
-    await page.locator('#mask-canvas').scrollIntoViewIfNeeded();
+    await page.locator('#mask-canvas').evaluate(element=>element.scrollIntoView({block:'center'}));
     const redrawBox=await page.locator('#mask-canvas').boundingBox();
     await page.mouse.move(redrawBox.x+redrawBox.width*.6,redrawBox.y+redrawBox.height*.6);
     await page.mouse.down();

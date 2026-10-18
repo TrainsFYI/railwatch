@@ -187,3 +187,52 @@ returns to that point. Saved passage timestamps are clipped to the recording's
 bounds and scaled to its media duration. The highlighted interval is an estimate,
 not a verified train boundary. Legacy and manually selected archive clips without
 confirmed detector timing play from the beginning without an invented highlight.
+
+### Local event analysis (development)
+
+A separate, bounded background worker analyses completed event recordings. It
+samples at most 48 detected train frames per clip; capture and recording do not
+wait for analysis. Estimates are stored separately from capture evidence and
+user reviews. Train-region feature motion, checked against the background,
+provides screen direction. Matched rail landmarks can map that direction to a
+bearing. Camera movement, inconsistent motion and ambiguous simultaneous trains
+produce Unknown.
+
+Settings → Railway calibration has an opt-in approximate speed estimate for new
+recordings. It uses the two rail correspondences frozen at capture time. This
+is an affine approximation affected by perspective, not a surveyed metric speed.
+Missing geometry, inconsistent motion or a recording timebase mismatch produce
+Unknown; present settings are never applied silently to older recordings.
+
+Freight/passenger inference loads a separately distributed `train-type.onnx` beside
+the detector model, with `train-type.json` containing `sha256`, ordered labels
+`["freight", "passenger"]`, `input_size` (integer or width/height pair),
+`source_sha256`, and `minimum_context_luminance`. A normalized `crop` may be
+provided for a fixed-camera model. The fingerprint must match the source frozen
+when the event was recorded. Weights and camera-specific manifests are distributed from the model release
+bucket rather than bundled with this repository. Low model scores, disagreement, unsupported
+illumination and missing artifacts produce Unknown. The existing private
+camera pilot artifact has been checked for OpenCV CPU inference compatibility;
+that does not establish accuracy on other cameras or at night.
+
+When confirming a train, users can choose Freight, Passenger or Not sure.
+Their label remains separate from the model estimate and can be edited later.
+Dismissing a detection clears its train-type label. These development changes do
+not disable cloud analysis or alter existing upload contracts. Cloud retirement
+requires real-clip parity and resource measurements on the target device.
+
+### Model versions and downloads
+
+Settings → Models & local analysis shows installed versions, SHA-256 identities,
+latest compatible releases, and download status. Select Check for updates, then
+Download latest weights for the detector or type classifier. Releases come from
+`https://storage.googleapis.com/trainsfyi-railwatch-models/catalog-v1.json`.
+The dedicated public source bucket contains released model artifacts only.
+
+Downloads run in the background, check size and checksum, validate ONNX inference,
+and activate atomically under the writable device data directory. Failed downloads
+keep the existing model. The detector switches after the current train passage
+ends; local analysis uses its new classifier on the next scan. Direction and speed
+use built-in algorithms, so their versions are shown without weight downloads.
+Camera-scoped classifiers are unavailable for incompatible camera sources. The
+current classifier is a single-camera daytime pilot, not a general classifier.

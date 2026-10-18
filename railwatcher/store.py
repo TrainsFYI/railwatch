@@ -71,15 +71,18 @@ class Store:
                 (*values.values(), event_id),
             )
 
-    def review(self, event_id: str, decision: str) -> bool:
+    def review(self, event_id: str, decision: str, train_type: str | None = None) -> bool:
         if decision not in {"confirmed", "dismissed"}:
             raise ValueError("Choose confirmed or dismissed")
+        if (train_type is not None and not isinstance(train_type, str)) or train_type not in {None, 'freight', 'passenger', 'unknown'}:
+            raise ValueError('Invalid train type')
         with self.connect() as db:
             row = db.execute("SELECT metadata FROM sightings WHERE id=?", (event_id,)).fetchone()
             if row is None:
                 return False
             metadata = json.loads(row["metadata"])
-            metadata["user_review"] = {"decision": decision, "reviewed_at": time.time()}
+            metadata["user_review"] = {"decision": decision, "reviewed_at": time.time(),
+                                       "train_type": train_type if decision == 'confirmed' and train_type in {'freight','passenger'} else None}
             db.execute("UPDATE sightings SET metadata=? WHERE id=?", (json.dumps(metadata), event_id))
         return True
 

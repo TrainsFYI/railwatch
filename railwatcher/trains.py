@@ -66,6 +66,7 @@ class TrainIndex(MotionIndex):
         self.directory.mkdir(exist_ok=True)
         self.model = model
         self.detector = None
+        self.model_provider = None
         digest = hashlib.sha256()
         if model.is_file():
             with model.open('rb') as handle:
@@ -77,6 +78,14 @@ class TrainIndex(MotionIndex):
         self.model_digest = digest.hexdigest()
 
     def signature(self, segment):
+        candidate = self.model_provider() if self.model_provider else self.model
+        if candidate != self.model:
+            self.model = candidate
+            self.detector = None
+            digest = hashlib.sha256(candidate.read_bytes())
+            if candidate.with_suffix('.json').exists():
+                digest.update(candidate.with_suffix('.json').read_bytes())
+            self.model_digest = digest.hexdigest()
         settings = self.config.get()
         digest = hashlib.sha256(json.dumps([VERSION,self.model_digest,settings.source,
             settings.detection_mask,settings.confidence,settings.confirmations,
