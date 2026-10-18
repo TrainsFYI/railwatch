@@ -64,3 +64,9 @@ def test_models_settings_api_and_builtin_algorithms(tmp_path):
     assert len(response['algorithms'])==2
     assert client.post('/api/models/check').status_code==403
     assert client.post('/api/models/bad/download',headers={'X-Railwatcher':'1'}).status_code==404
+
+
+def test_camera_id_scoping_does_not_require_public_source_fingerprints(tmp_path):
+    manager=ModelUpdates(tmp_path,tmp_path/'bundled.onnx',ConfigStore(tmp_path),lambda:'camera-one')
+    assert manager.compatible({'camera_ids':['camera-one']})
+    assert not manager.compatible({'camera_ids':['camera-two']})

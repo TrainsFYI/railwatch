@@ -30,10 +30,11 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     directory.chmod(0o700)
     config, store = ConfigStore(directory), Store(directory)
-    model_updates = ModelUpdates(directory, model or Path(os.environ.get("RAILWATCHER_MODEL", "models/train.onnx")), config)
+    pairing = Pairing(directory)
+    model_updates = ModelUpdates(directory, model or Path(os.environ.get("RAILWATCHER_MODEL", "models/train.onnx")), config,
+                                 lambda: (pairing.credential() or {}).get("camera", {}).get("id"))
     engine = Engine(config, store, model_updates.path('detector'))
     engine.model_provider = lambda: model_updates.path('detector')
-    pairing = Pairing(directory)
     uploader = Uploader(config, store, pairing, engine.passages)
     motion = MotionIndex(engine.footage, config)
     flashes = FlashIndex(engine.footage, config)

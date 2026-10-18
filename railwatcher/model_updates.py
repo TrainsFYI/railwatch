@@ -26,10 +26,11 @@ def atomic_json(path, value):
 
 
 class ModelUpdates:
-    def __init__(self, directory, bundled, config):
+    def __init__(self, directory, bundled, config, camera_id_provider=None):
         self.directory=Path(directory)/'model-releases';self.directory.mkdir(exist_ok=True)
         self.state_path=self.directory/'active.json'
         self.bundled=Path(bundled);self.config=config
+        self.camera_id_provider=camera_id_provider or (lambda:None)
         self.active=json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
         self.catalog=None;self.error=None;self.busy=None
         self.lock=threading.RLock();self.thread=None
@@ -46,6 +47,8 @@ class ModelUpdates:
         return self.bundled if identity=='detector' else self.bundled.parent/'train-type.onnx'
 
     def compatible(self, item):
+        if item.get('camera_ids') and self.camera_id_provider() not in item['camera_ids']:
+            return False
         scope=item.get('source_sha256')
         return not scope or scope==hashlib.sha256(self.config.get().source.encode()).hexdigest()
 
@@ -79,6 +82,8 @@ class ModelUpdates:
             if item.get('id') not in FILES or item['id'] in ids:
                 raise ValueError('Invalid model identity')
             ids.add(item['id'])
+            if 'camera_ids' in item and (not isinstance(item['camera_ids'],list) or not item['camera_ids'] or any(not isinstance(value,str) or not value for value in item['camera_ids'])):
+                raise ValueError('Invalid model camera scope')
             if not isinstance(item.get('version'),str) or not re.fullmatch(r'[a-zA-Z0-9_.-]{1,100}',item['version']):
                 raise ValueError('Invalid model version')
             if not re.fullmatch(r'[a-f0-9]{64}',str(item.get('sha256',''))):
@@ -116,6 +121,8 @@ class ModelUpdates:
             candidate=directory/('candidate-'+FILES[identity]);staging.replace(candidate)
             metadata={**item['manifest'],'version':item['version']}
             metadata['onnx_sha256' if identity=='detector' else 'sha256']=item['sha256']
+            if identity=='train_type':
+                metadata['source_sha256']=hashlib.sha256(self.config.get().source.encode()).hexdigest()
             candidate.with_suffix('.json').write_text(json.dumps(metadata))
             if identity=='detector':
                 detector=TrainDetector(candidate)
