@@ -543,3 +543,7 @@ html { scroll-padding-top:88px; }
 .approximate-speed-choice { display:block; margin-top:22px; font-weight:500; }.approximate-speed-choice small { display:block; color:var(--muted); margin-top:8px; font-weight:400; line-height:1.5; }
 .model-row { display:flex; justify-content:space-between; align-items:center; gap:24px; padding:22px 0; border-bottom:1px solid var(--line); }.model-row h3 { margin:0 0 10px; }.model-row p { margin:5px 0;font-size:13px; }.model-row button { flex-shrink:0; }.model-source { margin-bottom:18px; }
 @media(max-width:800px) { .model-row { flex-direction:column;align-items:flex-start; gap:12px; } }
+
+.device-state[data-state="paused"] .device-dot, .device-state[data-state="starting"] .device-dot { background:#a1a1aa; }
+.device-state[data-state="needs-attention"] .device-dot, .device-state[data-state="camera-disconnected"] .device-dot, .device-state[data-state="model-unavailable"] .device-dot { background:#d99a12; }
+.device-state[data-state="disconnected"] .device-dot { background:#dc4343; }

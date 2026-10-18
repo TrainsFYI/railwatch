@@ -17,23 +17,22 @@ function navigation(active) {
 function setupProgress(index) {
   return `<ol class="steps" aria-label="Setup progress">${stepNames.map((name,i)=>`<li class="step ${i===index?'active':''}" ${i===index?'aria-current="step"':''}><b>${i<index?'✓':i+1}</b>${name}</li>`).join('')}</ol>`;
 }
-function updateThemeToggle() {
-  const dark = document.documentElement.dataset.theme === 'dark';
-  const button = $('#theme-toggle');
-  if (!button) return;
-  button.setAttribute('aria-pressed', String(dark));
-  button.setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} mode`);
-  $('#theme-label').textContent = dark ? 'Light mode' : 'Dark mode';
-  $('.theme-icon').textContent = dark ? '☀' : '☾';
-  $('meta[name="theme-color"]').content = dark ? '#151517' : '#ffffff';
+function applyTheme(theme) {
+  document.documentElement.dataset.theme=theme;
+  try { localStorage.setItem('railwatcher-theme',theme); } catch {}
+  $('meta[name="theme-color"]').content=theme==='dark'?'#151517':'#ffffff';
 }
-$('#theme-toggle').onclick = () => {
-  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = theme;
-  try { localStorage.setItem('railwatcher-theme', theme); } catch {}
-  updateThemeToggle();
-};
-updateThemeToggle();
+$('meta[name="theme-color"]').content=document.documentElement.dataset.theme==='dark'?'#151517':'#ffffff';
+async function refreshSystemStatus() {
+  const badge=$('#system-status'),label=$('#system-status-label');
+  try {
+    const status=await api('status');
+    const state=status.storage_error?'Needs attention':!status.enabled?'Paused':status.camera!=='connected'?'Camera disconnected':!status.model_available?'Model unavailable':status.recording?'Recording':status.detector==='watching'?'Monitoring':'Starting';
+    label.textContent=state;badge.dataset.state=state.toLowerCase().replaceAll(' ','-');
+    badge.title=`Camera: ${status.camera} · Detection: ${status.detector} · Uploads: ${status.uploads}`;
+  } catch { label.textContent='Disconnected';badge.dataset.state='disconnected';badge.title='Cannot reach RailWatch'; }
+  setTimeout(refreshSystemStatus,5000);
+}
 async function api(path, method = 'GET', body) {
   const response = await fetch(`/api/${path}`, {method, headers: {'Content-Type':'application/json','X-Railwatcher':'1'}, body:body === undefined ? undefined : JSON.stringify(body)});
   const result = await response.json();
@@ -382,6 +381,7 @@ function buildSettingsSections() {
   location.querySelector('h2').outerHTML='<h3>Camera position</h3>';
   const panel=(id,title,description)=>{const element=document.createElement('section');element.id='settings-panel-'+id;element.dataset.settingsPanel=id;element.className='settings-panel';element.setAttribute('role','tabpanel');element.setAttribute('aria-labelledby','settings-tab-'+id);element.innerHTML=`<div class="settings-panel-heading"><h2>${title}</h2><p>${description}</p></div>`;return element;};
   const panels={
+    appearance:panel('appearance','Appearance','Choose how RailWatch looks on this browser.'),
     camera:panel('camera','Camera','Name your camera and manage its video connection.'),
     location:panel('location','Location & view','Set where the camera is installed and the view it covers.'),
     railway:panel('railway','Railway calibration','Match fixed points in the camera image with the same points on the map.'),
@@ -390,6 +390,7 @@ function buildSettingsSections() {
     models:panel('models','Models & local analysis','Download current model weights and inspect installed versions.'),
     account:panel('account','TrainsFYI account','Connect this device to your account for private uploads.')
   };
+  panels.appearance.innerHTML+='<div class="settings-group"><label for="appearance-theme">Color mode</label><select id="appearance-theme"><option value="light">Light</option><option value="dark">Dark</option></select><p class="hint">Your choice is saved automatically on this browser.</p></div>';
   const cameraGrid=document.createElement('div');cameraGrid.className='camera-settings-grid';
   const cameraPreview=document.createElement('div');cameraPreview.id='camera-preview-slot';
   cameraGrid.append(camera,cameraPreview);panels.camera.append(cameraGrid);
@@ -409,9 +410,11 @@ function buildSettingsSections() {
   renderModels();
   const shell=document.createElement('div');shell.className='settings-shell';
   const sidebar=document.createElement('aside');sidebar.className='settings-sidebar';
-  sidebar.innerHTML='<nav aria-label="Settings sections"><div role="tablist" aria-label="Settings" aria-orientation="vertical">'+[['Device',[['camera','Camera'],['location','Location & view'],['railway','Railway calibration']]],['Capture',[['detection','Train detection'],['models','Models & local analysis'],['recording','Recording & storage']]],['Cloud',[['account','TrainsFYI account']]]].map(([group,items])=>`<div class="settings-nav-group"><span>${group}</span>${items.map(([id,label])=>`<button type="button" role="tab" id="settings-tab-${id}" data-settings-section="${id}" aria-controls="settings-panel-${id}">${label}</button>`).join('')}</div>`).join('')+'</div></nav>';
+  sidebar.innerHTML='<nav aria-label="Settings sections"><div role="tablist" aria-label="Settings" aria-orientation="vertical">'+[['Preferences',[['appearance','Appearance']]],['Device',[['camera','Camera'],['location','Location & view'],['railway','Railway calibration']]],['Capture',[['detection','Train detection'],['models','Models & local analysis'],['recording','Recording & storage']]],['Cloud',[['account','TrainsFYI account']]]].map(([group,items])=>`<div class="settings-nav-group"><span>${group}</span>${items.map(([id,label])=>`<button type="button" role="tab" id="settings-tab-${id}" data-settings-section="${id}" aria-controls="settings-panel-${id}">${label}</button>`).join('')}</div>`).join('')+'</div></nav>';
   const content=document.createElement('div');content.className='settings-content';Object.values(panels).forEach(item=>content.append(item));
   cameraPreview.append(preview);shell.append(sidebar,content);old.replaceWith(shell);
+  $('#appearance-theme').value=document.documentElement.dataset.theme==='dark'?'dark':'light';
+  $('#appearance-theme').onchange=event=>applyTheme(event.target.value);
   form.querySelector('.actions').classList.add('settings-save-actions');
   $('#error').classList.add('settings-save-error');
   form.querySelectorAll('[data-settings-section]').forEach(button=>{
@@ -469,8 +472,14 @@ function detectionDate(stamp, now = new Date()) {
   const day = sameDay(date, now) ? 'Today' : sameDay(date, yesterday) ? 'Yesterday' : date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
   return `${day} at ${date.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true })}`;
 }
+function detectionType(row) {
+  if(row.review_status==='dismissed')return 'False Positive';
+  if(row.review_status==='required')return 'Waiting For Review';
+  const type=String(row.train_type||'').toLowerCase();
+  return type==='passenger'?'Passenger':type==='freight'?'Freight':'Waiting For Review';
+}
 function eventTable(rows) {
-  return `<div class="event-table-wrap"><table class="event-table"><thead><tr><th scope="col">Detected</th><th scope="col">Duration</th><th scope="col">Type</th><th scope="col">Speed</th><th scope="col">Direction</th><th scope="col">Confidence</th><th scope="col">Review</th><th scope="col">Upload</th><th scope="col"><span class="sr-only">Details</span></th></tr></thead><tbody>${rows.map(row=>`<tr data-event-id="${escapeHTML(row.id)}"><td><button type="button" class="event-open" data-event-id="${escapeHTML(row.id)}">${escapeHTML(detectionDate(row.started))}</button></td><td>${eventDuration(row)}</td><td>${escapeHTML(row.train_type || 'Unknown')}</td><td>${row.local_analysis?.speed?.value != null?'~'+escapeHTML(row.local_analysis.speed.value)+' km/h':'—'}</td><td>${escapeHTML(row.local_analysis?.direction?.value || '—')}</td><td>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</td><td>${row.review_status==='not_required'?'<span class="muted">—</span>':`<span class="review-chip ${escapeHTML(row.review_status)}">${reviewLabel(row)}</span>`}</td><td><span class="badge ${escapeHTML(row.status)}">${row.status==='pending'?'Queued':escapeHTML(row.status)}</span></td><td aria-hidden="true">↗</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="event-table-wrap"><table class="event-table"><thead><tr><th scope="col">Detected</th><th scope="col">Duration</th><th scope="col">Type</th><th scope="col">Speed</th><th scope="col">Direction</th><th scope="col">Confidence</th><th scope="col">Review</th><th scope="col">Upload</th><th scope="col"><span class="sr-only">Details</span></th></tr></thead><tbody>${rows.map(row=>`<tr data-event-id="${escapeHTML(row.id)}"><td><button type="button" class="event-open" data-event-id="${escapeHTML(row.id)}">${escapeHTML(detectionDate(row.started))}</button></td><td>${eventDuration(row)}</td><td>${escapeHTML(detectionType(row))}</td><td>${row.local_analysis?.speed?.value != null?'~'+escapeHTML(row.local_analysis.speed.value)+' km/h':'—'}</td><td>${escapeHTML(row.local_analysis?.direction?.value || '—')}</td><td>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</td><td>${row.review_status==='not_required'?'<span class="muted">—</span>':`<span class="review-chip ${escapeHTML(row.review_status)}">${reviewLabel(row)}</span>`}</td><td><span class="badge ${escapeHTML(row.status)}">${row.status==='pending'?'Queued':escapeHTML(row.status)}</span></td><td aria-hidden="true">↗</td></tr>`).join('')}</tbody></table></div>`;
 }
 async function refreshSightings() {
   const rows=await api(`sightings?offset=${offset}`);if(page!=='dashboard')return;
@@ -613,6 +622,7 @@ async function refreshDashboard() {
 }
 $('#close-video').onclick=()=>$('#video-dialog').close();$('#video-dialog').addEventListener('close',()=>{stopDetectionUpdates();disposeDetectionPlayer();$('#video-dialog video').pause();$('#video-dialog video').removeAttribute('src');$('#video-dialog video').load();});
 boot();
+refreshSystemStatus();
 
 function bindDevicePairing() {
   const showPairing = async () => {

@@ -34,14 +34,17 @@ async function main() {
       return [detectionDate(new Date(2025,0,2,14,53).getTime()/1000,now),detectionDate(new Date(2025,0,1,14,53).getTime()/1000,now),detectionDate(new Date(2025,0,1,14,53).getTime()/1000,new Date(2025,0,3))];
     });
     assert.deepEqual(dateLabels,['Today at 2:53 PM','Yesterday at 2:53 PM','Wednesday, January 1, 2025 at 2:53 PM']);
+    const types=await page.evaluate(()=>[
+      detectionType({review_status:'dismissed',train_type:'freight'}),
+      detectionType({review_status:'required',train_type:'passenger'}),
+      detectionType({review_status:'confirmed',train_type:'passenger'}),
+      detectionType({review_status:'not_required',train_type:'freight'}),
+      detectionType({review_status:'confirmed'})]);
+    assert.deepEqual(types,['False Positive','Waiting For Review','Passenger','Freight','Waiting For Review']);
+
 
     await page.getByRole('link',{name:'RailWatch by Trains.FYI home'}).waitFor();
-    await page.getByRole('button',{name:'Switch to dark mode'}).click();
-    assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
-    await page.reload();
-    await page.getByRole('heading',{name:'Video source'}).waitFor();
-    assert.equal(await page.locator('html').getAttribute('data-theme'),'dark','Theme preference persists on reload');
-    await page.getByRole('button',{name:'Switch to light mode'}).click();
+    assert.equal(await page.locator('.header-right #theme-toggle').count(),0);
     fs.mkdirSync('artifacts',{recursive:true});
     await page.screenshot({path:'artifacts/setup-desktop.png',fullPage:true});
     await page.getByLabel('Camera name').fill('West junction');
@@ -185,6 +188,15 @@ async function main() {
     await page.screenshot({path:'artifacts/dashboard-mobile.png',fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Mobile page overflows');
     await page.getByRole('button',{name:/Camera settings/}).click();
+    await page.getByRole('tab',{name:'Appearance',exact:true}).click();
+    await page.getByLabel('Color mode',{exact:true}).selectOption('dark');
+    assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+    await page.reload();
+    await page.getByRole('button',{name:'Camera settings',exact:true}).click();
+    await page.getByRole('tab',{name:'Appearance',exact:true}).click();
+    assert.equal(await page.getByLabel('Color mode',{exact:true}).inputValue(),'dark');
+    await page.getByLabel('Color mode',{exact:true}).selectOption('light');
+    await page.getByRole('tab',{name:'Camera',exact:true}).click();
     await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();
     await page.getByLabel('RTSP stream URL').waitFor();
     assert.equal(await page.getByLabel('RTSP stream URL').getAttribute('type'),'text');
