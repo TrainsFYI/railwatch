@@ -14,7 +14,7 @@ def test_profile_is_cached_allowlisted_and_logout_keeps_recordings(tmp_path):
     app.state.store.create('saved',100,.8,{})
     response=httpx.Response(200,json={'account':{'display_name':'Alice','email':'alice@example.com','secret':'hidden'}},request=httpx.Request('GET','https://example.com'))
     client=TestClient(app)
-    with patch('railwatcher.pairing.httpx.Client') as remote:
+    with patch('railwatcher.pairing.time.monotonic',return_value=1), patch('railwatcher.pairing.httpx.Client') as remote:
         remote.return_value.__enter__.return_value.get.return_value=response
         data=client.get('/api/device').json()
         assert data['connected'] is True

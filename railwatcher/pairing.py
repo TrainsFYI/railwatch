@@ -27,7 +27,7 @@ class Pairing:
         self.session_path = Path(directory) / 'device-pairing.json'
         self.lock = threading.Lock()
         self.status = 'not connected'
-        self.profile_checked = 0
+        self.profile_checked = None
         self.thread = None
         self.stop = threading.Event()
 
@@ -37,7 +37,7 @@ class Pairing:
 
     def refresh_account(self):
         credential = self.credential()
-        if not credential or time.monotonic()-self.profile_checked<300:
+        if not credential or (self.profile_checked is not None and time.monotonic()-self.profile_checked<300):
             return
         self.profile_checked=time.monotonic()
         try:
@@ -58,7 +58,7 @@ class Pairing:
             self.path.unlink(missing_ok=True)
             self.session_path.unlink(missing_ok=True)
             self.status='not connected'
-            self.profile_checked=0
+            self.profile_checked=None
 
     def public(self):
         credential = self.credential()
