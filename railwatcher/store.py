@@ -81,9 +81,18 @@ class Store:
             if row is None:
                 return False
             metadata = json.loads(row["metadata"])
+            metadata.pop("review_reset",None)
             metadata["user_review"] = {"decision": decision, "reviewed_at": time.time(),
                                        "train_type": train_type if decision == 'confirmed' and train_type in {'freight','passenger'} else None}
             db.execute("UPDATE sightings SET metadata=? WHERE id=?", (json.dumps(metadata), event_id))
+        return True
+
+    def reset_review(self, event_id):
+        with self.connect() as db:
+            row=db.execute('SELECT metadata FROM sightings WHERE id=?',(event_id,)).fetchone()
+            if row is None:return False
+            metadata=json.loads(row['metadata']);metadata.pop('user_review',None);metadata['review_reset']=True
+            db.execute('UPDATE sightings SET metadata=? WHERE id=?',(json.dumps(metadata),event_id))
         return True
 
     def list(self, limit=100, offset=0):

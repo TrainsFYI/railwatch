@@ -525,7 +525,12 @@ h1 { font-size:30px; letter-spacing:-.8px; font-weight:600; }
 .review-result { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:18px 0; color:var(--muted); font-size:13px; }
 .review-menu { position:relative; }.review-menu summary { list-style:none; cursor:pointer; font-size:22px; line-height:1; padding:5px 10px; border-radius:5px; margin:0; }.review-menu summary::-webkit-details-marker { display:none; }
 .review-menu summary:hover { background:var(--surface-alt); }.review-menu summary:focus-visible { outline:2px solid var(--ink); }
-.review-menu button { position:absolute; z-index:2; top:100%; right:0; white-space:nowrap; min-width:130px; background:var(--surface); color:var(--ink); border:1px solid var(--line); box-shadow:0 4px 12px #0001; font-weight:500; text-align:left; }.review-menu button:hover { background:var(--surface-alt); }
+.dialog-controls { display:flex; align-items:center; gap:4px; }
+.dialog-close { background:transparent; color:var(--ink); border:0; border-radius:5px; padding:4px; width:32px; height:32px; font-size:26px; font-weight:400; line-height:1; }
+.dialog-close:hover { background:var(--surface-alt); }
+.review-dropdown { position:absolute; z-index:10; top:100%; right:0; min-width:210px; padding:5px; background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow:0 4px 12px #0001; }
+.review-dropdown button { display:block; width:100%; white-space:nowrap; background:transparent; color:var(--ink); border:0; font-weight:500; text-align:left; }
+.review-dropdown button:hover { background:var(--surface-alt); }
 [data-theme="dark"] .review-notice { background:#352b16; border-color:#6b5728; color:#eddaa4; }[data-theme="dark"] .review-notice p { color:#dac58f; }[data-theme="dark"] .review-buttons .secondary { background:#46391d; color:#eddaa4; border-color:#796336; }
 .event-table-wrap { position:relative; }
 

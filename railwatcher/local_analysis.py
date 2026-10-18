@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import threading
+import uuid
 from pathlib import Path
 
 import cv2
@@ -224,18 +225,63 @@ def analyse_clip(path, row, observations, context, classifier_path, stop):
         capture.release()
 
 
+def detect_recording(path, row, context, model_path, stop):
+    """Re-run presence on retained media without creating a recording or upload."""
+    from .detection import TrainDetector
+
+    detector=TrainDetector(model_path)
+    capture=cv2.VideoCapture(str(path))
+    fps=capture.get(cv2.CAP_PROP_FPS)
+    duration=capture.get(cv2.CAP_PROP_FRAME_COUNT)/max(1,fps)
+    if not capture.isOpened() or not 0<fps<1000 or duration<=0:
+        capture.release();raise ValueError('Recording is unavailable')
+    observations=[];peak=0.;positive_times=[]
+    try:
+        for seconds in np.linspace(0,max(0,duration-1/fps),min(96,max(1,int(duration*2)))):
+            if stop.is_set():raise InterruptedError()
+            capture.set(cv2.CAP_PROP_POS_MSEC,float(seconds*1000));ok,frame=capture.read()
+            if not ok:continue
+            score=detector.confidence(frame,context.get('detection_mask',[]));peak=max(peak,score)
+            threshold=context.get('detector_threshold',.55)
+            detections=[d for d in detector.last_detections if d['confidence']>=threshold]
+            if detections:positive_times.append(float(seconds))
+            for detection in detections:
+                observations.append({'stamp':row['started']+seconds/duration*(row['ended']-row['started']),**detection})
+        return observations,{'value':'train' if len(positive_times)>=3 and positive_times[-1]-positive_times[0]>=2 else None,
+                             'confidence':peak,'model_sha256':hashlib.sha256(model_path.read_bytes()).hexdigest()}
+    finally:capture.release()
+
+
 class LocalAnalysis:
     def __init__(self, store, passages, classifier_path):
         self.store, self.passages, self.classifier_path = store, passages, Path(classifier_path)
         self.stop = threading.Event()
         self.thread = None
         self.model_provider = None
+        self.detector_provider = None
         with store.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS local_analysis (event_id TEXT PRIMARY KEY, signature TEXT NOT NULL, result TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS local_analysis_requests (event_id TEXT PRIMARY KEY, token TEXT NOT NULL, state TEXT NOT NULL)')
+            db.execute("UPDATE local_analysis_requests SET state='queued' WHERE state='running'")
 
     def results(self):
         with self.store.connect() as db:
             return {row['event_id']:json.loads(row['result']) for row in db.execute('SELECT event_id,result FROM local_analysis')}
+
+    def states(self):
+        with self.store.connect() as db:
+            return {row['event_id']:row['state'] for row in db.execute('SELECT event_id,state FROM local_analysis_requests')}
+
+    def request(self, event_id, reset=False):
+        row=self.store.get(event_id)
+        if row is None:raise LookupError('Detection not found')
+        if not reset and (not row['filename'] or not (self.store.clips/row['filename']).is_file() or not row['ended'] or row['status']=='recording'):
+            raise ValueError('A finished local recording is required to re-run models')
+        with self.store.connect() as db:
+            state='cleared' if reset else 'queued'
+            db.execute('INSERT OR REPLACE INTO local_analysis_requests VALUES(?,?,?)',(event_id,uuid.uuid4().hex,state))
+            if reset:db.execute('DELETE FROM local_analysis WHERE event_id=?',(event_id,))
+        return state
 
     def start(self):
         self.thread = threading.Thread(target=self.run, name='local-event-analysis', daemon=True)
@@ -259,13 +305,24 @@ class LocalAnalysis:
             self.classifier_path = self.model_provider()
         manifest = self.classifier_path.with_suffix('.json')
         model_signature = [(str(p),p.stat().st_mtime_ns,p.stat().st_size) for p in [self.classifier_path,manifest] if p.exists()]
-        for row in self.store.list(100):
+        with self.store.connect() as db:
+            jobs={row['event_id']:dict(row) for row in db.execute('SELECT * FROM local_analysis_requests')}
+        queued=[self.store.get(identity) for identity,job in jobs.items() if job['state']=='queued']
+        rows=queued+[row for row in self.store.list(100) if row['id'] not in {item['id'] for item in queued if item}]
+        for row in rows:
+            if row is None:continue
+            job=jobs.get(row['id'])
+            if job and job['state']=='cleared':continue
+            requested=bool(job and job['state']=='queued')
+            token=job['token'] if job else None
             if self.stop.is_set():
                 break
             if not row['ended'] or row['ended'] <= row['started'] or not row['filename'] or row['status']=='recording':
                 continue
             path = self.store.clips/row['filename']
             if not path.is_file():
+                if requested:
+                    with self.store.connect() as db:db.execute("UPDATE local_analysis_requests SET state='failed' WHERE event_id=? AND token=?",(row['id'],token))
                 continue
             context = json.loads(row['metadata']).get('analysis_context',{})
             observations = []
@@ -277,14 +334,30 @@ class LocalAnalysis:
                         observations.extend(data.get('observations',[]))
                 signature = hashlib.sha256(json.dumps([VERSION,row['ended'],context,observations,model_signature],sort_keys=True).encode()).hexdigest()
                 existing = db.execute('SELECT signature FROM local_analysis WHERE event_id=?',(row['id'],)).fetchone()
-            if existing and existing['signature']==signature:
+            if not requested and existing and existing['signature']==signature:
                 continue
+            with self.store.connect() as db:
+                if requested:db.execute("UPDATE local_analysis_requests SET state='running' WHERE event_id=? AND token=?",(row['id'],token))
+            failed=False
             try:
+                presence=None
+                if requested:
+                    model=self.detector_provider() if self.detector_provider else None
+                    if model is None or not model.is_file():raise ValueError('Detector model is unavailable')
+                    observations,presence=detect_recording(path,row,context,model,self.stop)
                 result = analyse_clip(path,row,observations,context,self.classifier_path,self.stop)
+                if presence is not None:
+                    result['presence']=presence
+                    if presence['value'] is None:
+                        result.update(train_type=unknown('train_presence_unconfirmed'),direction=unknown('train_presence_unconfirmed'),speed=unknown('train_presence_unconfirmed'))
             except InterruptedError:
                 break
             except (ValueError,OSError,cv2.error):
+                failed=True
                 result = {'version':VERSION,'train_type':unknown('analysis_unavailable'), 'direction':unknown('analysis_unavailable'),'speed':unknown('analysis_unavailable')}
             with self.store.connect() as db:
+                current=db.execute('SELECT token FROM local_analysis_requests WHERE event_id=?',(row['id'],)).fetchone()
+                if (current['token'] if current else None)!=token:continue
                 db.execute('INSERT OR REPLACE INTO local_analysis VALUES(?,?,?)',(row['id'],signature,json.dumps(result)))
+                if requested:db.execute('UPDATE local_analysis_requests SET state=? WHERE event_id=? AND token=?',('failed' if failed else 'completed',row['id'],token))
             break  # One bounded recording per scan; capture always has priority.

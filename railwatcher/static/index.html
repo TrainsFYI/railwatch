@@ -12,5 +12,5 @@
 <aside id="app-sidebar" aria-label="Application navigation"></aside>
 <main id="app"><div class="loading">Loading camera settings…</div></main>
 <div id="toast" role="status" hidden></div>
-<dialog id="video-dialog"><div class="dialog-head"><h2>Sighting recording</h2><button id="close-video" class="secondary">Close</button></div><video controls playsinline></video></dialog>
+<dialog id="video-dialog"><div class="dialog-head"><h2>Sighting recording</h2><div class="dialog-controls"><details class="review-menu"><summary aria-label="Review options">⋯</summary><div class="review-dropdown"><button id="edit-review" type="button">Edit review</button><button data-detection-action="analysis/rerun" type="button">Re-run local models</button><button data-detection-action="analysis/reset" type="button">Reset local analysis</button><button data-detection-action="review/reset" type="button">Reset review</button></div></details><button id="close-video" class="dialog-close" aria-label="Close" type="button">×</button></div></div><video controls playsinline></video></dialog>
 </body></html>

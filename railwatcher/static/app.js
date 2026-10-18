@@ -481,20 +481,22 @@ async function refreshSightings() {
   $('#event-count').textContent=dashboardView==='overview'?shown.length:rows.length;
   document.querySelectorAll('tr[data-event-id]').forEach(row=>row.onclick=()=>openDetection(row.dataset.eventId));
 }
+let stopDetectionUpdates=()=>{};
 function openDetection(id) {
+  stopDetectionUpdates();
   const row=visibleSightings.find(item=>item.id===id);if(!row)return;
   const dialog=$('#video-dialog'), video=dialog.querySelector('video');
   dialog.querySelector('h2').textContent='Detection details';
   let detail=$('#detection-detail');
   if(!detail){detail=document.createElement('div');detail.id='detection-detail';dialog.querySelector('.dialog-head').after(detail);}
-  detail.innerHTML=`<p class="detail-time">${escapeHTML(detectionDate(row.started))}</p><dl class="detection-facts"><div><dt>Duration</dt><dd>${eventDuration(row)}</dd></div><div><dt>Confidence</dt><dd>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</dd></div><div><dt>Type</dt><dd>${escapeHTML(row.train_type || 'Unknown')}${row.user_train_type?' · confirmed by you':''}</dd></div><div><dt>Local speed</dt><dd>${row.local_analysis?.speed?.value != null?'~'+escapeHTML(row.local_analysis.speed.value)+' km/h':'Unknown'}</dd></div><div><dt>Local direction</dt><dd>${escapeHTML(row.local_analysis?.direction?.value || 'Unknown')}</dd></div><div><dt>Upload</dt><dd>${row.status==='pending'?'Queued':escapeHTML(row.status)}</dd></div></dl><div id="review-panel"></div>${row.error?`<p class="error">${escapeHTML(row.error)}</p>`:''}${!row.video_url?'<p class="clip-unavailable">This recording is no longer available on this device.</p>':''}<div id="detail-feedback" role="status"></div><div class="detection-actions">${row.status==='pending'&&row.attempts?'<button id="retry-detection" type="button" class="secondary">Retry upload</button>':''}</div>`;
+  detail.innerHTML=`<p class="detail-time">${escapeHTML(detectionDate(row.started))}</p><dl class="detection-facts"><div><dt>Duration</dt><dd>${eventDuration(row)}</dd></div><div><dt>Confidence</dt><dd>${row.manual_review?'Manually marked':`${Math.round(row.confidence*100)}%`}</dd></div><div><dt>Type</dt><dd>${escapeHTML(row.train_type || 'Unknown')}${row.user_train_type?' · confirmed by you':''}</dd></div><div><dt>Local speed</dt><dd>${row.local_analysis?.speed?.value != null?'~'+escapeHTML(row.local_analysis.speed.value)+' km/h':'Unknown'}</dd></div><div><dt>Local direction</dt><dd>${escapeHTML(row.local_analysis?.direction?.value || 'Unknown')}</dd></div><div><dt>Upload</dt><dd>${row.status==='pending'?'Queued':escapeHTML(row.status)}</dd></div></dl><div id="review-panel"></div>${row.error?`<p class="error">${escapeHTML(row.error)}</p>`:''}${!row.video_url?'<p class="clip-unavailable">This recording is no longer available on this device.</p>':''}<div id="detail-feedback" role="status"></div>`;
   video.hidden=!row.video_url;
   if(row.video_url){mountDetectionPlayer(row, video);}else{disposeDetectionPlayer();$('#detection-player')?.remove();dialog.append(video);video.pause();video.removeAttribute('src');video.load();}
   const renderReview=(editing=false,thanks=false)=>{
     const panel=$('#review-panel');
     const reviewed=['confirmed','dismissed'].includes(row.review_status);
     const showBox=editing||row.review_status==='required';
-    panel.innerHTML=showBox?`<section class="review-notice"><strong>${editing?'Update your review':'Needs review'}</strong><p>${editing?'Change whether this recording shows a train.':'Confidence is below 80%. Watch the clip and confirm whether this is a train.'}</p>${row.video_url?`<label for="review-train-type">Train type</label><select id="review-train-type"><option value="unknown">Not sure</option><option value="freight">Freight</option><option value="passenger">Passenger</option></select><div class="review-buttons"><button id="confirm-detection" type="button">Confirm train</button><button id="dismiss-detection" type="button" class="secondary">Not a train</button>${editing?'<button id="cancel-review" type="button" class="text-button">Cancel</button>':''}</div>`:'<p>The recording is no longer available to review.</p>'}<p id="review-error" role="status"></p></section>`:`<div class="review-result"><span role="status">${thanks?'Thanks — ':reviewed?'Reviewed · ':''}${reviewed?(row.review_status==='confirmed'?(row.user_train_type?'Marked as '+row.user_train_type+' train':'Marked as a train'):'Marked as not a train'):'No review needed'}</span>${row.video_url?'<details class="review-menu"><summary aria-label="Review options">⋯</summary><button id="edit-review" type="button">Edit review</button></details>':''}</div>`;
+    panel.innerHTML=showBox?`<section class="review-notice"><strong>${editing?'Update your review':'Needs review'}</strong><p>${editing?'Change whether this recording shows a train.':'Confidence is below 80%. Watch the clip and confirm whether this is a train.'}</p>${row.video_url?`<label for="review-train-type">Train type</label><select id="review-train-type"><option value="unknown">Not sure</option><option value="freight">Freight</option><option value="passenger">Passenger</option></select><div class="review-buttons"><button id="confirm-detection" type="button">Confirm train</button><button id="dismiss-detection" type="button" class="secondary">Not a train</button>${editing?'<button id="cancel-review" type="button" class="text-button">Cancel</button>':''}</div>`:'<p>The recording is no longer available to review.</p>'}<p id="review-error" role="status"></p></section>`:`<div class="review-result"><span role="status">${thanks?'Thanks — ':reviewed?'Reviewed · ':''}${reviewed?(row.review_status==='confirmed'?(row.user_train_type?'Marked as '+row.user_train_type+' train':'Marked as a train'):'Marked as not a train'):'No review needed'}</span></div>`;
     const review=async decision=>{
       const trainType=decision==='confirmed'?$('#review-train-type').value:null;
       panel.querySelectorAll('button').forEach(button=>button.disabled=true);
@@ -511,7 +513,45 @@ function openDetection(id) {
     if($('#cancel-review'))$('#cancel-review').onclick=()=>renderReview();
   };
   renderReview();
-  if($('#retry-detection'))$('#retry-detection').onclick=async()=>{try{await api(`sightings/${encodeURIComponent(id)}/retry`,'POST');$('#detail-feedback').textContent='Upload queued for retry.';}catch(e){$('#detail-feedback').textContent=e.message;}};
+  const detectionOffset=offset;
+  let updateTimer,disposed=false;
+  stopDetectionUpdates=()=>{disposed=true;clearTimeout(updateTimer);};
+  const updateAnalysis=async()=>{
+    try{
+      const rows=await api(`sightings?offset=${detectionOffset}`);
+      if(disposed)return;
+      const latest=rows.find(item=>item.id===id);
+      if(!latest)return;
+      Object.assign(row,latest);
+      const facts=detail.querySelectorAll('.detection-facts dd');
+      facts[2].textContent=(row.train_type||'Unknown')+(row.user_train_type?' · confirmed by you':'');
+      facts[3].textContent=row.local_analysis?.speed?.value!=null?'~'+row.local_analysis.speed.value+' km/h':'Unknown';
+      facts[4].textContent=row.local_analysis?.direction?.value||'Unknown';
+      const state=row.local_analysis_state;
+      $('#detail-feedback').textContent=({queued:'Local models queued…',running:'Running local models…',completed:'Local analysis updated.',failed:'Local analysis could not finish.',cleared:'Local analysis reset.'})[state]||'';
+      if(['queued','running'].includes(state))updateTimer=setTimeout(updateAnalysis,2000);
+    }catch{if(!disposed)updateTimer=setTimeout(updateAnalysis,5000);}
+  };
+  if(['queued','running'].includes(row.local_analysis_state))updateTimer=setTimeout(updateAnalysis,1000);
+  const menu=dialog.querySelector('.review-menu');menu.open=false;
+  $('#edit-review').onclick=()=>{menu.open=false;renderReview(true);};
+  dialog.querySelectorAll('[data-detection-action]').forEach(button=>{
+    button.disabled=button.dataset.detectionAction==='analysis/rerun'&&(!row.video_url||row.status==='recording');
+    button.onclick=async()=>{
+      menu.open=false;
+      const feedback=$('#detail-feedback');
+      try{
+        await api(`sightings/${encodeURIComponent(id)}/${button.dataset.detectionAction}`,'POST');
+        if(!feedback.isConnected)return;
+        if(button.dataset.detectionAction==='review/reset'){
+          row.review_status='required';row.user_train_type=null;renderReview();
+          feedback.textContent='Review reset.';
+        }else feedback.textContent=button.dataset.detectionAction==='analysis/rerun'?'Local models queued. Results will update when processing finishes.':'Local analysis reset.';
+        await refreshSightings();
+        if(button.dataset.detectionAction.startsWith('analysis/')&&!disposed)updateTimer=setTimeout(updateAnalysis,500);
+      }catch(e){if(feedback.isConnected)feedback.textContent=e.message;}
+    };
+  });
   if(!dialog.open)dialog.showModal();
 }
 let disposeDetectionPlayer = () => {};
@@ -571,7 +611,7 @@ async function refreshDashboard() {
   }catch(e){if(page==='dashboard')toast(e.message);}
   if(page==='dashboard')statusTimer=setTimeout(refreshDashboard,5000);
 }
-$('#close-video').onclick=()=>$('#video-dialog').close();$('#video-dialog').addEventListener('close',()=>{disposeDetectionPlayer();$('#video-dialog video').pause();$('#video-dialog video').removeAttribute('src');$('#video-dialog video').load();});
+$('#close-video').onclick=()=>$('#video-dialog').close();$('#video-dialog').addEventListener('close',()=>{stopDetectionUpdates();disposeDetectionPlayer();$('#video-dialog video').pause();$('#video-dialog video').removeAttribute('src');$('#video-dialog video').load();});
 boot();
 
 function bindDevicePairing() {

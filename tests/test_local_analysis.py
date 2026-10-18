@@ -95,3 +95,39 @@ def test_train_region_optical_flow_rejects_background_only_and_measures_motion()
     assert value is not None
     assert abs(value[0]-10)<1 and abs(value[1])<1
     assert flow_vector(before,before,[.25,.27,.64,.73],.5) is None
+
+
+def test_rerun_and_reset_preserve_upload_and_capture(tmp_path):
+    app=create_app(tmp_path,workers=False);store=app.state.store;worker=app.state.local_analysis
+    store.create('old',100,.7,{'analysis_context':{'source_sha256':'source'}})
+    store.update('old',ended=120,filename='old.mp4',status='uploaded',remote_id='remote-one',attempts=1)
+    (store.clips/'old.mp4').write_bytes(b'clip')
+    model=tmp_path/'model.onnx';model.write_bytes(b'model');worker.detector_provider=lambda:model
+    original=dict(store.get('old'))
+    result={'train_type':{'value':'freight'},'direction':{'value':'right'},'speed':{'value':None}}
+    client=TestClient(app);headers={'X-Railwatcher':'1'}
+    with patch('railwatcher.local_analysis.detect_recording',return_value=([],{'value':'train'})) as detector,patch('railwatcher.local_analysis.analyse_clip',return_value=result):
+        assert client.post('/api/sightings/old/analysis/rerun',headers=headers).status_code==200
+        worker.scan()
+        assert detector.call_count==1
+        assert worker.states()['old']=='completed'
+        assert worker.results()['old']['presence']['value']=='train'
+        assert dict(store.get('old'))==original
+        assert client.post('/api/sightings/old/analysis/reset',headers=headers).status_code==200
+        worker.scan()
+        assert 'old' not in worker.results()
+        assert detector.call_count==1
+        worker.request('old')
+        def reset_during_analysis(*args):
+            worker.request('old',reset=True)
+            return result
+        with patch('railwatcher.local_analysis.analyse_clip',side_effect=reset_during_analysis):worker.scan()
+        assert 'old' not in worker.results()
+    client.post('/api/sightings/old/review',json={'decision':'confirmed','train_type':'passenger'},headers=headers)
+    assert client.post('/api/sightings/old/review/reset',headers=headers).status_code==200
+    row=client.get('/api/sightings').json()[0]
+    assert row['review_status']=='required' and row['user_train_type'] is None
+    assert row['status']=='uploaded' and store.get('old')['remote_id']=='remote-one'
+    assert client.post('/api/sightings/missing/analysis/rerun',headers=headers).status_code==404
+    (store.clips/'old.mp4').unlink()
+    assert client.post('/api/sightings/old/analysis/rerun',headers=headers).status_code==409

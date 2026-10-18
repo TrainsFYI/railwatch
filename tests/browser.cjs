@@ -147,6 +147,11 @@ async function main() {
     await page.getByText('Thanks — Marked as passenger train',{exact:true}).waitFor();
     assert.equal(await page.getByLabel('Train type',{exact:true}).count(),0);
     assert.equal(await page.locator('.review-notice').count(),0);
+    const menuBounds=await page.getByLabel('Review options',{exact:true}).boundingBox();
+    const closeBounds=await page.getByRole('button',{name:'Close',exact:true}).boundingBox();
+    assert(menuBounds.x+menuBounds.width<=closeBounds.x);
+    assert(Math.abs(menuBounds.y-closeBounds.y)<12);
+    assert.equal(await page.getByRole('button',{name:'Retry upload',exact:true}).count(),0);
     await page.getByLabel('Review options',{exact:true}).click();
     await page.getByRole('button',{name:'Edit review',exact:true}).click();
     await page.getByRole('button',{name:'Not a train',exact:true}).click();

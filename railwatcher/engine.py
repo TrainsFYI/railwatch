@@ -76,6 +76,7 @@ class Recording:
             'railway_calibration': settings.railway_calibration.model_dump() if settings.railway_calibration else None,
             'approximate_speed_enabled': settings.approximate_speed_enabled,
             'detection_mask': settings.detection_mask,
+            'detector_threshold': settings.confidence,
         }
         store.create(self.id, self.started, score, metadata)
         # Pre-roll is queued in a burst; reserve it independently of live encoder slack.

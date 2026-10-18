@@ -41,6 +41,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     trains = TrainIndex(engine.footage, config, engine.model_path)
     local_analysis = LocalAnalysis(store, engine.passages, model_updates.path('train_type'))
     local_analysis.model_provider = lambda: model_updates.path('train_type')
+    local_analysis.detector_provider = lambda: model_updates.path('detector')
     trains.model_provider = lambda: model_updates.path('detector')
 
     @asynccontextmanager
@@ -223,12 +224,14 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     def sightings(offset: int = 0):
         rows = store.list(50, max(0, offset))
         estimates = local_analysis.results()
+        analysis_states = local_analysis.states()
         for row in rows:
             metadata = json.loads(row["metadata"])
             row["manual_review"] = bool(metadata.get("manual_review"))
             row["review_status"] = metadata.get("user_review", {}).get("decision") or (
-                "confirmed" if row["manual_review"] else "required" if row["confidence"] < .8 else "not_required"
+                "required" if metadata.get("review_reset") else "confirmed" if row["manual_review"] else "required" if row["confidence"] < .8 else "not_required"
             )
+            row['local_analysis_state'] = analysis_states.get(row['id'],'completed' if row['id'] in estimates else 'pending')
             row['local_analysis'] = estimates.get(row['id'], {})
             row['user_train_type'] = metadata.get('user_review', {}).get('train_type')
             row['train_type'] = (row['user_train_type'] or row['local_analysis'].get('train_type', {}).get('value')) if row['review_status'] != 'dismissed' else None
@@ -248,6 +251,19 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
         if not store.review(event_id, body["decision"], train_type):
             raise HTTPException(404, "Detection not found")
         return {"review_status": body["decision"]}
+
+    @app.post('/api/sightings/{event_id}/analysis/{action}')
+    def analyse_sighting(event_id: str, action: str):
+        if action not in {'rerun','reset'}:raise HTTPException(404,'Unknown analysis action')
+        try:state=local_analysis.request(event_id,reset=action=='reset')
+        except LookupError as error:raise HTTPException(404,str(error)) from None
+        except ValueError as error:raise HTTPException(409,str(error)) from None
+        return {'state':state}
+
+    @app.post('/api/sightings/{event_id}/review/reset')
+    def reset_sighting_review(event_id: str):
+        if not store.reset_review(event_id):raise HTTPException(404,'Detection not found')
+        return {'review_status':'required'}
 
     @app.get("/api/sightings/{event_id}/timeline")
     def sighting_timeline(event_id: str):
