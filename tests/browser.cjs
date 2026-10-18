@@ -196,6 +196,18 @@ async function main() {
     await page.getByRole('tab',{name:'Appearance',exact:true}).click();
     assert.equal(await page.getByLabel('Color mode',{exact:true}).inputValue(),'dark');
     await page.getByLabel('Color mode',{exact:true}).selectOption('light');
+    let connected=true;
+    await page.route('**/api/device',route=>route.fulfill({json:{connected,status:connected?'connected':'not connected',camera:{name:'West junction'},account:{display_name:'Alice Example',email:'alice@example.com'}}}));
+    await page.route('**/api/device/logout',route=>{connected=false;return route.fulfill({json:{connected:false,status:'not connected'}});});
+    await page.getByRole('tab',{name:'TrainsFYI account',exact:true}).click();
+    await page.evaluate(()=>bindDevicePairing());
+    await page.getByText('Alice Example',{exact:true}).waitFor();
+    await page.getByText('alice@example.com',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Connect to TrainsFYI',exact:true}).isVisible(),false);
+    await page.getByRole('button',{name:'Log out',exact:true}).click();
+    await page.getByRole('button',{name:'Connect to TrainsFYI',exact:true}).waitFor({state:'visible'});
+    assert.equal(await page.getByRole('button',{name:'Log out',exact:true}).count(),0);
+    await page.unroute('**/api/device');await page.unroute('**/api/device/logout');
     await page.getByRole('tab',{name:'Camera',exact:true}).click();
     await page.getByRole('heading',{name:'Settings',exact:true}).waitFor();
     await page.getByLabel('RTSP stream URL').waitFor();

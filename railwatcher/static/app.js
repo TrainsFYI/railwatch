@@ -630,7 +630,17 @@ function bindDevicePairing() {
     try {
       const device = await api('device');
       target.replaceChildren();
-      const status = document.createElement('p'); status.textContent = device.connected ? `Connected: ${device.camera.name}` : device.status; target.append(status);
+      $('#pair-device').hidden=device.connected;
+      const status = document.createElement('p'); status.textContent = device.connected ? 'Connected to TrainsFYI' : device.status; target.append(status);
+      if(device.connected){
+        const profile=device.account||{};
+        const name=document.createElement('strong');name.textContent=profile.display_name||profile.email||'TrainsFYI account';target.append(name);
+        if(profile.email&&profile.display_name){const email=document.createElement('p');email.textContent=profile.email;target.append(email);}
+        const camera=document.createElement('p');camera.className='hint';camera.textContent=`Camera: ${device.camera.name}`;target.append(camera);
+        if(!profile.display_name&&!profile.email){const note=document.createElement('p');note.className='hint';note.textContent='Your account profile is temporarily unavailable.';target.append(note);}
+        const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Log out';target.append(logout);
+        logout.onclick=async()=>{logout.disabled=true;try{await api('device/logout','POST');await showPairing();toast('Logged out of TrainsFYI on this device.');}catch(e){logout.disabled=false;error(e.message);}};
+      }
       if (device.code) {
         const qr = document.createElement('img'); qr.src = '/api/device/qr'; qr.alt = 'Scan to authorize this camera'; qr.width = 180; qr.height = 180; target.append(qr);
         const code = document.createElement('strong'); code.textContent = device.code; target.append(code);

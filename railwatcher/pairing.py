@@ -2,6 +2,7 @@
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 import httpx
@@ -26,6 +27,7 @@ class Pairing:
         self.session_path = Path(directory) / 'device-pairing.json'
         self.lock = threading.Lock()
         self.status = 'not connected'
+        self.profile_checked = 0
         self.thread = None
         self.stop = threading.Event()
 
@@ -33,11 +35,37 @@ class Pairing:
         with self.lock:
             return json.loads(self.path.read_text()) if self.path.exists() else None
 
+    def refresh_account(self):
+        credential = self.credential()
+        if not credential or time.monotonic()-self.profile_checked<300:
+            return
+        self.profile_checked=time.monotonic()
+        try:
+            with httpx.Client(timeout=5, follow_redirects=False) as client:
+                response=client.get(API+'account/',headers={'Authorization':'Bearer '+credential['credential']})
+                response.raise_for_status()
+                account=response.json()['account']
+                profile={key:account.get(key) for key in ('display_name','email') if isinstance(account.get(key),str)}
+            with self.lock:
+                if self.path.exists() and json.loads(self.path.read_text()).get('credential')==credential['credential']:
+                    credential['account']=profile
+                    private_write(self.path,credential)
+        except (httpx.HTTPError,ValueError,KeyError,OSError):
+            pass  # A temporary profile failure must not disconnect the camera.
+
+    def logout(self):
+        with self.lock:
+            self.path.unlink(missing_ok=True)
+            self.session_path.unlink(missing_ok=True)
+            self.status='not connected'
+            self.profile_checked=0
+
     def public(self):
         credential = self.credential()
         result = {'connected': credential is not None, 'status': self.status}
         if credential:
             result['camera'] = credential['camera']
+            result['account'] = {key:credential.get('account',{}).get(key) for key in ('display_name','email')}
         if self.session_path.exists():
             session = json.loads(self.session_path.read_text())
             result.update({key: session[key] for key in ['code', 'approval_url', 'expires_at']})
@@ -45,7 +73,7 @@ class Pairing:
 
     def begin(self, settings):
         with self.lock:
-            if self.thread and self.thread.is_alive():
+            if self.thread and self.thread.is_alive() and self.session_path.exists():
                 return
             with httpx.Client(timeout=20, follow_redirects=False) as client:
                 response = client.post(API + 'pairing/', json={'name': settings.name, 'location': {'latitude': settings.latitude, 'longitude': settings.longitude}})
@@ -55,7 +83,9 @@ class Pairing:
             self.thread.start()
 
     def poll(self):
-        session = json.loads(self.session_path.read_text())
+        with self.lock:
+            if not self.session_path.exists():return
+            session = json.loads(self.session_path.read_text())
         self.status = 'waiting for account approval'
         with httpx.Client(timeout=20, follow_redirects=False) as client:
             while not self.stop.wait(5):
@@ -69,6 +99,8 @@ class Pairing:
                     response.raise_for_status()
                     result = response.json()
                     with self.lock:
+                        if not self.session_path.exists() or json.loads(self.session_path.read_text()).get('session_id')!=session['session_id']:
+                            return
                         private_write(self.path, {'credential': result['credential'], 'camera': result['camera']})
                         self.session_path.unlink(missing_ok=True)
                     self.status = 'connected'

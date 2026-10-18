@@ -108,6 +108,13 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
 
     @app.get("/api/device")
     def device_status():
+        pairing.refresh_account()
+        return pairing.public()
+
+    @app.post('/api/device/logout')
+    def logout_device():
+        pairing.logout()
+        config.update({'api_key':''})
         return pairing.public()
 
     @app.get("/api/device/qr")
