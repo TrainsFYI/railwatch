@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for a RailWatch update request
+
+[Path]
+PathExists=/run/railwatcher-updates/inbox/request.json
+Unit=railwatcher-update.service
+
+[Install]
+WantedBy=multi-user.target

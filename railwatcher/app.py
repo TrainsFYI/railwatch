@@ -18,6 +18,7 @@ from .local_analysis import LocalAnalysis
 from .model_updates import ModelUpdates
 from .motion import MotionIndex
 from .pairing import Pairing
+from .software_updates import SoftwareUpdates
 from .store import Store
 from .trains import TrainIndex
 from .uploads import Uploader
@@ -44,9 +45,13 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     local_analysis.detector_provider = lambda: model_updates.path('detector')
     trains.model_provider = lambda: model_updates.path('detector')
 
+    software_updates = SoftwareUpdates(directory)
+
     @asynccontextmanager
     async def lifespan(app):
         if workers:
+            if os.environ.get("RAILWATCHER_RELEASE_CHECKS") != "off":
+                software_updates.start()
             engine.start()
             local_analysis.start()
             motion.start()
@@ -55,6 +60,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             uploader.start()
         yield
         if workers:
+            await asyncio.to_thread(software_updates.close)
             await asyncio.to_thread(local_analysis.close)
             await asyncio.to_thread(trains.close)
             await asyncio.to_thread(motion.close)
@@ -69,6 +75,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     app.state.trains = trains
     app.state.local_analysis = local_analysis
     app.state.model_updates = model_updates
+    app.state.software_updates = software_updates
 
     @app.middleware("http")
     async def browser_guard(request, call_next):
@@ -83,6 +90,18 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/api/") else "no-cache"
         return response
+
+    @app.get('/api/software')
+    def software_status():
+        return software_updates.public()
+
+    @app.post('/api/software/install')
+    def software_install():
+        try:
+            software_updates.request_install()
+        except (ValueError, OSError) as error:
+            raise HTTPException(409, str(error) if isinstance(error, ValueError) else 'Update could not be queued') from None
+        return {'status': 'queued'}
 
     @app.get('/api/models')
     def models():

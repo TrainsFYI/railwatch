@@ -1,0 +1,14 @@
+[Unit]
+Description=Install a verified RailWatch GitHub release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /opt/railwatcher/update-helper.py
+Environment=PYTHONPATH=
+TimeoutStartSec=1800
+UMask=0022
+PrivateTmp=true
+ProtectHome=true
+NoNewPrivileges=true

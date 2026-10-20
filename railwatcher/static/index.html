@@ -7,10 +7,11 @@
     <img class="brand-logo" src="/static/trainsfyi-logo.png" alt="">
     <span class="brand-name">RailWatch <small>by Trains.FYI</small></span>
   </a>
-  <div class="header-right"><span class="device-state" id="system-status" role="status" data-state="starting"><span class="device-dot" aria-hidden="true"></span><span id="system-status-label">Connecting…</span></span></div>
+  <div class="header-right"><button id="software-update-notice" type="button" hidden>Please update</button><span class="device-state" id="system-status" role="status" data-state="starting"><span class="device-dot" aria-hidden="true"></span><span id="system-status-label">Connecting…</span></span></div>
 </header>
 <aside id="app-sidebar" aria-label="Application navigation"></aside>
 <main id="app"><div class="loading">Loading camera settings…</div></main>
+<dialog id="software-dialog" aria-labelledby="software-title"><div class="dialog-head"><h2 id="software-title">RailWatch updates</h2><button id="close-software" type="button" class="dialog-close" aria-label="Close updates">×</button></div><div id="software-content"></div></dialog>
 <div id="toast" role="status" hidden></div>
 <dialog id="video-dialog"><div class="dialog-head"><h2>Sighting recording</h2><div class="dialog-controls"><details class="review-menu"><summary aria-label="Review options">⋯</summary><div class="review-dropdown"><button id="edit-review" type="button">Edit review</button><button data-detection-action="analysis/rerun" type="button">Re-run local models</button><button data-detection-action="analysis/reset" type="button">Reset local analysis</button><button data-detection-action="review/reset" type="button">Reset review</button></div></details><button id="close-video" class="dialog-close" aria-label="Close" type="button">×</button></div></div><video controls playsinline></video></dialog>
 </body></html>

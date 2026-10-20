@@ -733,3 +733,34 @@ function calibrationPage(returnTo = settingsPage, onboarding = false) {
   $('#rail-save').onclick=async()=>{if(busy)return;busy=true;refresh();try{config=await api('config','PATCH',{railway_calibration:{revision:'new',points:railPoints},railway_calibration_draft:[]});toast('Calibration saved. Verification is needed before estimating speed.');returnTo();}catch(e){error(e.message);}finally{busy=false;if(page==='calibration')refresh();}};
   startPreview();refresh();window.onresize=drawMask;
 }
+
+
+let softwareStatus = null, softwareInstalling = false;
+function renderSoftware() {
+  const state=softwareStatus;
+  if(!state)return;
+  const operation=state.operation || {}, busy=['queued','installing','restarting'].includes(operation.status);
+  const notice=$('#software-update-notice');
+  notice.hidden=!state.update_available&&!busy&&operation.status!=='failed';
+  notice.textContent=busy?'Updating…':operation.status==='failed'?'Update needs attention':'Please update';
+  const target=$('#software-content');
+  target.innerHTML=`<p>Installed version: <strong>${escapeHTML(state.current_version)}</strong></p>${state.update_available?`<p><strong>${escapeHTML(state.latest_version)}</strong> is available${state.prerelease?' (prerelease)':''}.</p>`:'<p>You have the latest available release.</p>'}${operation.message?`<p role="status">${escapeHTML(operation.message)}</p>`:''}${busy?'<p role="status">Updating RailWatch. This page will reconnect automatically.</p>':state.update_available&&state.one_click?'<p>Your settings, recordings and account connection will be kept. Monitoring pauses briefly when RailWatch restarts.</p><button id="install-software" type="button">Update now</button>':state.update_available?'<p>For Docker, rebuild and restart using the release instructions. Raspberry Pi installs support one-click updates after running the new installer once.</p>':''}<p><a href="${escapeHTML(state.release_url||state.releases_url)}" target="_blank" rel="noopener noreferrer">Release notes and update instructions ↗</a></p><p class="hint">Checks GitHub once a day, including pilot prereleases.${state.error?' '+escapeHTML(state.error):''}</p>`;
+  const install=$('#install-software');
+  if(install)install.onclick=async()=>{
+    install.disabled=true;
+    try{await api('software/install','POST');softwareInstalling=true;await refreshSoftware(false);}
+    catch(e){toast(e.message);install.disabled=false;}
+  };
+  if(softwareInstalling&&!state.update_available&&operation.status==='complete'){
+    softwareInstalling=false;toast('RailWatch updated successfully.');
+  }
+}
+async function refreshSoftware(schedule=true) {
+  try {softwareStatus=await api('software');renderSoftware();}
+  catch {if(softwareInstalling)$('#software-content').innerHTML='<p role="status">RailWatch is restarting. Reconnecting…</p>';}
+  if(schedule)setTimeout(refreshSoftware,softwareInstalling?3000:60000);
+  else if(softwareInstalling)setTimeout(()=>refreshSoftware(false),3000);
+}
+$('#software-update-notice').onclick=()=>{renderSoftware();$('#software-dialog').showModal();};
+$('#close-software').onclick=()=>$('#software-dialog').close();
+refreshSoftware();

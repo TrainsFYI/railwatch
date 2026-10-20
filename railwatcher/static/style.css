@@ -547,3 +547,5 @@ html { scroll-padding-top:88px; }
 .device-state[data-state="paused"] .device-dot, .device-state[data-state="starting"] .device-dot { background:#a1a1aa; }
 .device-state[data-state="needs-attention"] .device-dot, .device-state[data-state="camera-disconnected"] .device-dot, .device-state[data-state="model-unavailable"] .device-dot { background:#d99a12; }
 .device-state[data-state="disconnected"] .device-dot { background:#dc4343; }
+
+#software-update-notice{background:#fff3cd;color:#654900;border:1px solid #e4c86c;padding:8px 12px;font-size:13px;white-space:nowrap}#software-update-notice[hidden]{display:none}#software-dialog{max-width:560px;width:calc(100% - 32px)}#software-content{padding:0 24px 24px}#software-content p{line-height:1.6}#software-content a{overflow-wrap:anywhere}@media(max-width:600px){.header-right{gap:8px}#software-update-notice{padding:7px;font-size:12px}.device-state{font-size:11px}}

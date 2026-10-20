@@ -30,9 +30,17 @@ if [[ -f "$MODEL_FILE" ]]; then
 else
   echo 'Model missing. Setup will work; detection waits for /opt/railwatcher/models/train.onnx.'
 fi
+ln -sfn /opt/railwatcher/venv /opt/railwatcher/current
+install -m 0644 "$SOURCE_DIR/railwatcher/releases.py" /opt/railwatcher/release_support.py
+install -m 0644 "$SOURCE_DIR/scripts/update_helper.py" /opt/railwatcher/update-helper.py
+install -m 0644 "$SOURCE_DIR/scripts/railwatcher-update.service" /etc/systemd/system/railwatcher-update.service
+install -m 0644 "$SOURCE_DIR/scripts/railwatcher-update.path" /etc/systemd/system/railwatcher-update.path
+install -m 0644 "$SOURCE_DIR/scripts/railwatcher-updates.conf" /etc/tmpfiles.d/railwatcher-updates.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/railwatcher-updates.conf
 install -m 0644 "$SOURCE_DIR/scripts/railwatcher.service" /etc/systemd/system/railwatcher.service
 systemctl daemon-reload
 systemctl enable --now avahi-daemon
+systemctl enable --now railwatcher-update.path
 systemctl enable railwatcher
 systemctl restart railwatcher
 for attempt in {1..20}; do

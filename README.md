@@ -14,7 +14,7 @@ A Raspberry Pi lookout for trains.fyi. Connect a USB webcam or local RTSP camera
 - SQLite sightings history, local video playback, persisted upload retries and bounded storage. Uploaded clips are pruned oldest first; pending clips are never automatically discarded. Capture pauses when pending clips consume the storage budget.
 - systemd installer, service restart recovery, camera reconnection, and local dashboard with real device/queue status.
 
-**Account-linked camera pilot:** choose Connect to TrainsFYI in setup or Settings, then approve the camera through your TrainsFYI account in a browser. The pilot is invite-only. Unpaired cameras record locally. Confirmed passages upload privately through the [device protocol](docs/device-protocol.md); cloud processing and models remain in the private backend.
+**Account-linked camera pilot:** choose Connect to TrainsFYI in setup or Settings, then approve the camera through your TrainsFYI account in a browser. New camera views are reviewed before their observations contribute to the public network. Unpaired cameras record locally. Confirmed passages upload privately through the [device protocol](docs/device-protocol.md); cloud processing and models remain in the private backend.
 
 ## Install on a Raspberry Pi
 
@@ -28,35 +28,50 @@ For one camera, start with:
 
 **Recommended budget camera: Wyze Cam v3.** Current production firmware includes RTSP support; Wyze announced the production rollout on February 2, 2026, with the RTSP setting available in the Wyze app ([firmware announcement](https://forums.wyze.com/t/wyze-firmware-updates-2-2-2026/340669)). Update the Wyze app to version 3.9 or later and the camera firmware, then enable RTSP in the camera's advanced settings, set its RTSP username and password, and paste the generated stream URL into RailWatch. Wyze rolls firmware out gradually, so update the app and camera before installation if the RTSP setting is missing. The v3 has night vision and needs its own USB power supply; it does not provide PoE ([Wyze v3 FAQ](https://support.wyze.com/hc/en-us/articles/7816811330331-More-Wyze-Cam-v3-FAQs)).
 
-### Install
+### Install with the guided Pi wizard
 
-1. In [Raspberry Pi Imager](https://www.raspberrypi.com/software/), install **Raspberry Pi OS Lite (64-bit)** on the Pi's microSD card. In Imager's settings, set a hostname (for example `railwatcher`), create a user and password, enable SSH, and enter the Wi-Fi details if Ethernet is unavailable. Raspberry Pi's [OS install guide](https://www.raspberrypi.com/documentation/computers/getting-started.html) has screenshots and details. Boot the Pi and connect over SSH or use a keyboard and display.
-2. Put a copy of the RailWatch project on the Pi. From a computer that already has this project checked out, run the following from the project directory (replace `pi` if you chose another username):
+Start with **Raspberry Pi OS Lite (64-bit)** on a Raspberry Pi 5. Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to write the card, set a username/password and network, and enable SSH. Boot the Pi, then open a terminal or SSH session on it.
 
-   ```sh
-   rsync -av --exclude='.runtime' --exclude='.venv' --exclude='data' --exclude='artifacts' --exclude='__pycache__' ./ pi@railwatcher.local:~/railwatcher/
-   ```
+Run this one command **on the Pi**:
 
-   If the Pi hostname does not resolve, use its IP address instead of `railwatcher.local`. Alternatively, clone your RailWatch repository directly on the Pi.
-3. If you have the train detector model, place it at `models/train.onnx` in the project directory before installing. The model is not included in source control; see [Model export](#model-export). If you export it on your computer after copying the project, transfer it with `scp models/train.onnx models/train.json pi@railwatcher.local:~/railwatcher/models/` (replace the username/host as needed). Without the model, the web UI and camera preview still work, but train detection stays unavailable.
-4. Connect the USB camera, or configure the network camera's RTSP stream and confirm it is reachable from the Pi. On the Pi, run:
+```sh
+curl -fsSL https://raw.githubusercontent.com/TrainsFYI/railwatch/main/install.sh | bash
+```
 
-   ```sh
-   cd ~/railwatcher
-   sudo bash scripts/install.sh
-   ```
+The interactive installer explains the requirements, asks before installing, downloads the newest official GitHub release (including pilot prereleases), checks its SHA-256 digest, and installs RailWatch with automatic startup and the update helper. It asks for your Pi's sudo password if needed. No repository checkout or model file is required to start setup.
 
-   The installer adds FFmpeg and Python dependencies, creates the `railwatcher` system service, and prints the local URL. It copies `models/train.onnx` and its accompanying `train.json` if present. Installation needs an internet connection to download system and Python packages.
-5. From a phone or computer on the same home network, open `http://railwatcher.local:8787` (or the URL printed by the installer). On first visit, choose the camera, set its position and direction on the map, and complete setup. The live dashboard opens on later visits; use **Settings** to change the camera or other configuration.
+After installation, open the printed address, usually **http://railwatcher.local:8787**, on a phone or computer on the same network. The browser wizard walks through your camera and live preview, railway position and landmarks, detection area, and trains.fyi account connection. Download the offered detector in Settings if one is not installed. Check that detection is watching, then verify your first train in Detections.
 
-The page is available to anyone on the local network; no login is required. Use it on a trusted network and do not port-forward the service to the public internet. Camera connection credentials, device credentials and pairing secrets are withheld from the configuration response and stored in the restricted data directory.
+Keep the dashboard on a trusted local network; it has no login. Do not forward its port on your router. You can return to Settings later to change your camera or account connection.
 
-The installer installs OS/Python dependencies, a dedicated `railwatcher` service user in the video group, and a boot-enabled systemd service. It can be rerun to update the application without replacing settings/history. No cloud services are deployed.
+Existing Pi installations should run the command above **once** to add the updater. Settings, pairing, recordings, models and pending uploads stay in `/var/lib/railwatcher` and are preserved. The original source installer remains available with `sudo bash scripts/install.sh` for development or a supplied ONNX model.
 
 ```sh
 sudo systemctl status railwatcher
 sudo journalctl -u railwatcher -f
 ```
+
+### Software releases and updates
+
+Published versions are on [GitHub Releases](https://github.com/TrainsFYI/railwatch/releases). **0.1.1 is our first prerelease.** Pilot installations include prereleases when checking for updates.
+
+RailWatch checks GitHub at startup when due, then once every 24 hours, even when the dashboard is closed. The last check survives restarts. An unavailable network does not stop capture or discard a previously discovered update.
+
+When a newer installable release is available, **Please update** appears in the top navigation. Open it to see the installed/new versions and release notes, then choose **Update now**. The Pi downloads a verified release into a separate Python environment while monitoring continues, waits for an idle recording boundary, and briefly restarts. If the new version fails its health check, the updater switches back to the previous environment and reports the failure. Keep power connected during the update.
+
+Docker and source-run installations show the same notice but do not give the web app access to Docker or root privileges. For Docker, preserve your data/model volumes, fetch the release tag, then rebuild and recreate the container:
+
+```sh
+git fetch origin --tags
+git checkout v0.1.1
+docker compose up -d --build
+```
+
+For later releases, substitute their published tag. Commit or save local source edits before changing versions. Developer virtual environments can install the checked-out version with `pip install .` and restart their process. To enable one-click Pi updates, use the guided installer above.
+
+For offline development or externally managed deployments, `RAILWATCHER_RELEASE_CHECKS=off` disables background checks.
+
+The dashboard can request only a version from the fixed `TrainsFYI/railwatch` repository. A separate root-owned systemd helper independently verifies the published release, bundle URL, size and GitHub SHA-256 digest. It does not accept shell commands or arbitrary download URLs, and it does not modify camera data. Update activity is available with `journalctl -u railwatcher-update`.
 
 
 ## Model export

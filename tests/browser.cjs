@@ -10,7 +10,7 @@ const sampleClip=path.join(data,'player-sample.mp4');
 assert.equal(spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=gray:s=320x180:r=10','-t','12','-c:v','libx264','-pix_fmt','yuv420p',sampleClip]).status,0);
 const port = Number(process.env.TEST_PORT || 18787);
 const base = `http://127.0.0.1:${port}`;
-const server = process.env.RAILWATCHER_EXTERNAL_SERVER ? {exitCode:null,stderr:{on(){}},stdout:{on(){}},kill(){}} : spawn(process.env.RAILWATCHER_PYTHON || '.venv/bin/python', ['-m', 'railwatcher', '--port', String(port), '--data', data, '--model', path.join(data, 'missing.onnx')], {stdio: ['ignore', 'pipe', 'pipe']});
+const server = process.env.RAILWATCHER_EXTERNAL_SERVER ? {exitCode:null,stderr:{on(){}},stdout:{on(){}},kill(){}} : spawn(process.env.RAILWATCHER_PYTHON || '.venv/bin/python', ['-m', 'railwatcher', '--port', String(port), '--data', data, '--model', path.join(data, 'missing.onnx')], {stdio: ['ignore', 'pipe', 'pipe'],env:{...process.env,RAILWATCHER_RELEASE_CHECKS:'off'}});
 let logs = '';
 server.stderr.on('data', d => logs += d.toString());
 server.stdout.on('data', d => logs += d.toString());
@@ -27,6 +27,11 @@ async function main() {
     const errors = []; page.on('pageerror', e=>errors.push(e.message));
     // Online tile services are external to the app; test graceful offline behavior.
     await page.route(/https:\/\/(server\.arcgisonline|tiles\.openrailwaymap)/, route=>route.abort());
+    let software={current_version:'0.1.1',latest_version:'v0.1.2',update_available:true,one_click:true,
+      prerelease:true,release_url:'https://github.com/TrainsFYI/railwatch/releases/tag/v0.1.2',operation:{}};
+    let installRequests=0;
+    await page.route('**/api/software',route=>route.fulfill({json:software}));
+    await page.route('**/api/software/install',route=>{installRequests++;software={...software,operation:{status:'queued'}};return route.fulfill({json:{status:'queued'}});});
     await page.goto(base);
     await page.getByRole('heading',{name:'Video source'}).waitFor();
     const dateLabels=await page.evaluate(()=>{
@@ -44,6 +49,22 @@ async function main() {
 
 
     await page.getByRole('link',{name:'RailWatch by Trains.FYI home'}).waitFor();
+    await page.getByRole('button',{name:'Please update',exact:true}).click();
+    await page.getByRole('heading',{name:'RailWatch updates'}).waitFor();
+    fs.mkdirSync('artifacts',{recursive:true});
+    await page.screenshot({path:'artifacts/software-update-desktop.png',fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+    await page.screenshot({path:'artifacts/software-update-mobile.png',fullPage:true});
+    await page.setViewportSize({width:1440,height:1000});
+    await page.getByRole('button',{name:'Update now',exact:true}).click();
+    await page.getByText('Updating RailWatch. This page will reconnect automatically.').waitFor();
+    assert.equal(installRequests,1);
+    software={...software,current_version:'0.1.2',update_available:false,operation:{status:'complete'}};
+    await page.getByText('RailWatch updated successfully.',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Close updates',exact:true}).click();
+    assert.equal(await page.locator('#software-update-notice').isVisible(),false);
+
     assert.equal(await page.locator('.header-right #theme-toggle').count(),0);
     fs.mkdirSync('artifacts',{recursive:true});
     await page.screenshot({path:'artifacts/setup-desktop.png',fullPage:true});
