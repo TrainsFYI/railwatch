@@ -251,3 +251,24 @@ ends; local analysis uses its new classifier on the next scan. Direction and spe
 use built-in algorithms, so their versions are shown without weight downloads.
 Camera-scoped classifiers are unavailable for incompatible camera sources. The
 current classifier is a single-camera daytime pilot, not a general classifier.
+
+
+## Nighttime crossing-signal recovery (opt-in pilot)
+
+The ordinary train detector can miss distant trains in darkness and glare. For cameras with a configured fixed crossing-light landmark, an additional capture path can preserve the evidence even when the train model does not confirm a passage.
+
+`night_recovery_enabled` defaults to false. Enable it only with the camera owner's permission to upload private nighttime review candidates. Configure the existing `landmarks` boxes around actual railway crossing lamps, the `night_review_timezone` and the start/end hours; enable `night_review_enabled` to retain missed footage as well. These settings are available through the existing local configuration API; this release adds no UI controls.
+
+The worker inspects completed archive segments. It requires repeated red flashes with bounded on/off cadence at the fixed landmark, joins an episode across recording boundaries, and waits for a quiet interval and the recording tail. It exports up to two minutes before the signal and at least 45 seconds afterward, preserving the original times. Processing normally takes several minutes after a passage. The state and clip identity survive restarts; recording gaps and failures remain in the local audit. A source/landmark change holds old candidates rather than treating them as evidence from the new view.
+
+Candidates upload through the existing account-linked historical pipeline with `complete=false`, `origin=owner_submitted_archive` and `incomplete_reason=night_crossing_signal_unconfirmed`. This is owner-authorized automatic recovery, not a human train confirmation. Local metadata records the signal evidence and requires review. It does not create train bounding boxes, a confirmed train class, a verified car count or a public map publication. It does not replace training and validation of a nighttime train model. Cameras without visible crossing signals need another independently validated capture method.
+
+Inspect `/api/status` → `night_recovery` for pending/submitted/held counts and errors. Pending exports are retried, and finalized uploads use the existing resumable upload queue. The automatic fallback runs only while capture is enabled and the camera is paired.
+
+To reproduce the pilot check without uploading or modifying capture, use the private hash-pinned fixture manifest with:
+
+```sh
+python scripts/evaluate_night_recovery.py --manifest /private/manifest.json --root /private/media --output /private/report.json
+```
+
+Keep private clips and manifests outside the public repository. The evaluation measures crossing-signal candidate capture, not train-classification accuracy or public-map safety.

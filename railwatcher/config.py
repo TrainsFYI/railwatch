@@ -83,6 +83,7 @@ class Settings(BaseModel):
     pre_roll: int = Field(default=120, ge=3, le=120)
     post_roll: int = Field(default=15, ge=3, le=60)
     max_clip_seconds: int = Field(default=300, ge=30, le=900)
+    night_recovery_enabled: bool = False
     night_review_enabled: bool = False
     night_review_timezone: str = Field(default="UTC", max_length=80)
     night_review_start_hour: int = Field(default=19, ge=0, le=23)

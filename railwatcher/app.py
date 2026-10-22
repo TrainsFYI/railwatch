@@ -17,6 +17,7 @@ from .flashes import FlashIndex
 from .local_analysis import LocalAnalysis
 from .model_updates import ModelUpdates
 from .motion import MotionIndex
+from .night_recovery import NightRecovery
 from .pairing import Pairing
 from .software_updates import SoftwareUpdates
 from .store import Store
@@ -45,6 +46,8 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     local_analysis.detector_provider = lambda: model_updates.path('detector')
     trains.model_provider = lambda: model_updates.path('detector')
 
+    night_recovery = NightRecovery(engine.footage, config, store, engine.passages, pairing,
+                                   lambda: engine.model_version)
     software_updates = SoftwareUpdates(directory)
 
     @asynccontextmanager
@@ -58,8 +61,10 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             trains.start()
             pairing.start()
             uploader.start()
+            night_recovery.start()
         yield
         if workers:
+            await asyncio.to_thread(night_recovery.close)
             await asyncio.to_thread(software_updates.close)
             await asyncio.to_thread(local_analysis.close)
             await asyncio.to_thread(trains.close)
@@ -76,6 +81,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
     app.state.local_analysis = local_analysis
     app.state.model_updates = model_updates
     app.state.software_updates = software_updates
+    app.state.night_recovery = night_recovery
 
     @app.middleware("http")
     async def browser_guard(request, call_next):
@@ -195,6 +201,7 @@ def create_app(directory: Path | None = None, model: Path | None = None, workers
             "uploads": uploader.status,
             "sightings": store.summary(),
             "passages": engine.passages.summary(),
+            "night_recovery": night_recovery.public(),
             "enabled": config.get().enabled,
         }
 

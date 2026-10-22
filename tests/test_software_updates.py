@@ -70,7 +70,7 @@ def test_update_api_obeys_browser_guard_and_never_accepts_arbitrary_urls(tmp_pat
     from railwatcher.app import create_app
     app=create_app(tmp_path,workers=False)
     client=TestClient(app)
-    assert client.get('/api/software').json()['current_version']=='0.1.1'
+    assert client.get('/api/software').json()['current_version']=='0.1.2'
     assert client.post('/api/software/install').status_code==403
     assert client.post('/api/software/install',headers={'X-Railwatcher':'1','Origin':'https://evil.example'}).status_code==403
     assert client.post('/api/software/install',headers={'X-Railwatcher':'1'},json={'url':'https://evil.example'}).status_code==409

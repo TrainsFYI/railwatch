@@ -79,13 +79,13 @@ class Passages:
         with self.store.connect() as db:
             db.execute("UPDATE passages SET status='pending' WHERE id=?", (identity,))
 
-    def submit_history(self, part_id, settings, model_version):
+    def submit_history(self, part_id, settings, model_version, *, incomplete_reason="historical_interval_not_confirmed"):
         part = self.store.get(part_id)
         if not part or not part['filename'] or not part['ended']:
             raise ValueError('Historical footage is unavailable')
         identity = str(uuid.uuid4())
         metadata = {'queued_at': time.time(), 'detected_started': part['started'], 'detected_ended': part['ended'],
-                    'complete': False, 'incomplete_reason': 'historical_interval_not_confirmed',
+                    'complete': False, 'incomplete_reason': incomplete_reason,
                     'parts': [part_id], 'observations': [], 'model_version': model_version,
                     'configuration_revision': hashlib.sha256(json.dumps(settings.model_dump(exclude={"source", "api_key", "upload_url"}), sort_keys=True).encode()).hexdigest(),
                     'origin': 'owner_submitted_archive', 'camera_context': self.context(settings, model_version, 'backfill_current_settings')}

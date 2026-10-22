@@ -1,5 +1,6 @@
 import datetime as dt
 import itertools
+import json
 import logging
 import os
 import queue
@@ -238,7 +239,7 @@ class FootageBuffer:
                 total -= path.stat().st_size
                 path.unlink(missing_ok=True)
 
-    def export_mark(self, store, settings, started: float, ended: float):
+    def export_mark(self, store, settings, started: float, ended: float, *, event_id=None, candidate_evidence=None):
         rows = self._segments()
         if not rows or started < rows[0]["started"] or ended > rows[-1]["ended"]:
             raise ValueError("That time range is no longer in the available footage buffer")
@@ -249,7 +250,13 @@ class FootageBuffer:
             if after["started"] - before["ended"] > 5:
                 raise ValueError("The selected range crosses a gap in camera footage")
 
-        event_id = str(uuid.uuid4())
+        event_id = event_id or str(uuid.uuid4())
+        existing = store.get(event_id)
+        if existing:
+            if existing['started'] != started or (existing['ended'] is not None and existing['ended'] != ended):
+                raise ValueError('Recovery identity does not match its capture interval')
+            if existing['filename'] and (store.clips/existing['filename']).is_file():
+                return existing
         duration = ended - started
         reserve = int(duration * 100_000) + 200_000_000
         if not store.make_room(int(settings.storage_gb * 1_000_000_000), reserve):
@@ -258,7 +265,14 @@ class FootageBuffer:
             raise OSError("Not enough free disk space is available for this clip")
         metadata = settings.model_dump(include={"name", "latitude", "longitude", "bearing", "field_of_view"})
         metadata.update(schema_version=1, capture_fps=5, width=640, height=360, manual_review=True)
-        store.create(event_id, started, 0, metadata)
+        if candidate_evidence:
+            metadata.update(manual_review=False, review_reset=True, night_candidate_evidence=candidate_evidence)
+        if existing:
+            with store.connect() as db:
+                db.execute("UPDATE sightings SET status='recording',metadata=?,error=NULL WHERE id=?",
+                           (json.dumps(metadata), event_id))
+        else:
+            store.create(event_id, started, 0, metadata)
         concat = self.directory / f"{event_id}.concat.txt"
         partial = store.clips / f"{event_id}.partial.mp4"
         final = store.clips / f"{event_id}.mp4"
